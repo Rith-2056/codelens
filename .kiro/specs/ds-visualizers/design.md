@@ -2,118 +2,124 @@
 
 ## Overview
 Four pieces, one per workstream:
-- **Contract v2** (integrator): `frontend/src/types/trace.ts` gains `objects`,
-  `stack`, and `version`.
-- **Tracer v2** (trace-engineer): `frontend/src/py/tracer.py` snapshots
-  containers and student-defined objects by reference, records the call stack,
-  and raises MAX_STEPS to 2000.
+- **Contract** (integrator, done): frozen version 2026-10-24 in
+  `frontend/src/types/trace.ts`. It adds the tagged `__set`, `__dict`,
+  `__deque`, and `__ref` values, plus `heap` and `stack` on every step.
+- **Tracer** (trace-engineer): `frontend/src/py/tracer.py` emits those forms,
+  fills `heap` and `stack`, and raises MAX_STEPS to 2000.
 - **Visualizers** (ui-builder): `frontend/src/components/visualizers/` draws
   each structure, chosen from the data.
 - **Explanations** (explainer): `frontend/src/explain/` describes structure
-  changes and owns the shared object helpers the UI also uses.
+  changes and owns the shared value helpers the UI also uses.
 
-Why a contract change: running the six Level 2 lessons through the v1 tracer
-(with MAX_STEPS raised to 2000) produces the right output, but the structures
-the lessons are about become placeholders: `seen` in the hash-map lesson (int
-keys), `seen` in the set lesson, and `graph`, `visited`, `queue`, and every
-`TreeNode`. v1 also copies containers by value, so it cannot show that two
-names share one list, and a step only holds the current frame, so recursion has
-no call stack.
+Why the contract changed: we ran the six Level 2 lessons through the old
+tracer with MAX_STEPS raised to 2000. They print the right output, but the
+structures the lessons are about become placeholders:
+- `seen` in the hash-map lesson (int keys)
+- `seen` in the set lesson
+- `graph`, `visited`, and `queue` in the BFS lesson
+- every `TreeNode`
 
-## Contract v2
-Additive to v1, except that container and object values become refs.
+A step also held only the current frame, so recursion had no call stack.
+
+## Contract (frozen, version 2026-10-24)
+The source of truth is `frontend/src/types/trace.ts`, mirrored in
+`.kiro/steering/tech.md`. Summary:
 
 ```ts
-export type JsonValue =
-  | null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
+type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
 
-/** A snapshot value is a primitive, a placeholder {"__type__": name}, or a ref {"__ref__": id}. */
-export type Ref = { __ref__: string };
+type SetValue   = { __set: JsonValue[] };               // sorted when possible
+type DictValue  = { __dict: [JsonValue, JsonValue][] }; // insertion order, non-string keys kept
+type DequeValue = { __deque: JsonValue[] };             // front first
+type RefValue   = { __ref: string };                    // points into heap
 
-export type ObjectSnapshot =
-  | { kind: "list" | "tuple" | "set" | "deque"; type: string; len: number; items: JsonValue[] }
-  | { kind: "dict"; type: string; len: number; entries: [JsonValue, JsonValue][] }
-  | { kind: "object"; type: string; fields: Record<string, JsonValue> };
+type HeapObject = { id: string; type: string; fields: Record<string, JsonValue> };
+type StackFrame = { functionName: string; frameId: string; line: number; locals: Record<string, JsonValue> };
 
-export type StackFrame = {
-  frameId: string;
-  functionName: string;
-  line: number;
-  depth: number;
-  locals: Record<string, JsonValue>;
-};
-
-export type TraceStep = {
-  // all v1 fields, unchanged:
-  index: number; line: number; event: "call" | "line" | "return" | "exception";
-  functionName: string; frameId: string; depth: number;
-  locals: Record<string, JsonValue>; stdout: string;
-  returnValue?: JsonValue; error?: { type: string; message: string };
-  // v2:
-  objects: Record<string, ObjectSnapshot>; // everything reachable from locals, stack, returnValue
-  stack: StackFrame[];                      // calling user frames, outermost first; excludes the current frame
-};
-
-export type TraceResult = {
-  steps: TraceStep[];
-  status: "ok" | "error" | "limit" | "timeout";
-  message?: string;
-  truncated: boolean;
-  codeHash: string;
-  version: 2;
-};
+// TraceStep keeps every earlier field; locals stays the current frame's locals.
+// New on every step:
+//   heap: Record<string, HeapObject>;
+//   stack: StackFrame[];   // calling frames, outermost first
 ```
 
-Notes:
-- `type` is the Python type name (`"list"`, `"frozenset"`, `"deque"`,
-  `"TreeNode"`). `kind` is what the UI switches on.
-- `len` is the real length. If `items`/`entries` are shorter, the container
-  was cut at MAX_ITEMS.
-- Dict keys are snapshot values, so int keys (`{4: 0}`) stay numbers. This is
-  why `entries` is a list of pairs, not a JSON object.
-- Placeholders keep their v1 shape. The v1 `__len__` placeholder for long
-  containers is no longer produced.
-- The worker's timeout result (`traceClient.ts`) must add `version: 2` in the
-  same commit as the type change, or the contract-guard typecheck fails.
+How Python values map to snapshot values:
 
-## Tracer v2
+| Python value | Snapshot value |
+|---|---|
+| `None`, `bool`, `int` (abs ≤ 2**53), finite `float`, `str` (≤ MAX_STR_LEN chars) | inline primitive, as before |
+| `list`, `tuple` | JSON array of snapshot values |
+| `dict` | `{"__dict": [[k, v], ...]}` in insertion order; keys are snapshot values, so `{4: 0}` stays `[[4, 0]]` |
+| `set`, `frozenset` | `{"__set": [...]}`, sorted when possible (see below) |
+| `collections.deque` | `{"__deque": [...]}`, front first |
+| instance of a student-defined class that passes the safety check | `{"__ref": "o1"}`, with `heap["o1"] = {id: "o1", type: "TreeNode", fields: {...}}` |
+| container with more than MAX_ITEMS items | `{"__type__": "<name>", "__len__": n}` |
+| functions, classes, modules, generators, unsafe objects, anything over a cap | `{"__type__": "<name>"}` |
 
-### Object model
+What this means for consumers:
+- **Copied by value:** lists, dicts, sets, and deques are copied at each step.
+  Two names bound to one list show as two equal arrays. Only heap objects have
+  identity.
+- **Nested inline:** containers nest inside each other (the BFS graph is a
+  `__dict` whose values are arrays), so nesting and self-containing
+  containers need caps.
+- **No plain-object dicts:** a dict is always a `__dict`. A plain JSON object
+  in a snapshot is therefore always a tagged value or a placeholder.
+- **No version field:** consumers tell shapes apart by their tags. `heap` and
+  `stack` are required on every step, possibly empty. The worker's timeout
+  result has `steps: []`, so it needed no change.
+- **Fixtures:** `shared/fixtures/loop.json` already has the new shape (empty
+  `heap` and `stack` on every step). `branch.json` and `function.json` are
+  regenerated in task 3; `function.json` gets a non-empty `stack` inside
+  `add`.
+
+## Tracer
+
+### Values
+- Use exact type checks only, as in the table.
+- **Nesting:** containers inside containers are written inline up to
+  MAX_NEST_DEPTH (4). Anything deeper becomes a placeholder.
+- **Cycles:** a container that is already on the current serialization path
+  becomes a placeholder.
+- **Over MAX_ITEMS:** a container becomes the `__len__` placeholder.
+- In all three cases, `truncated` is set.
+- **Set order:** sort when every item is an exact primitive, or a tuple of
+  exact primitives. Use a key of (rank, value), with ranks None < bool <
+  number < str, compared element by element for tuples. Sorting then never
+  calls student code, and the order is the same under any `PYTHONHASHSEED`.
+  Otherwise keep iteration order ("sorted when possible").
+- **Dict keys** are snapshot values (primitives, tuples as arrays). A key that
+  can't be shown becomes a placeholder.
+
+### Heap
 - **Ids:** one table per run maps `id(obj) → "o<n>"` in first-seen order. The
   tracer keeps a reference to every object in the table until the run ends,
-  so a Python `id` is never reused for a different object during the run.
-- **Traversal per step:** `stack` frames (outermost first, each frame's locals
-  in insertion order), then the current frame's locals, then `returnValue`.
-  Inside a container, visit items in their own order. Each object is
-  snapshotted at most once per step, so cycles terminate.
-- **Kinds (exact type checks only):**
-
-| Python value | Snapshot |
-|---|---|
-| `None`, `bool`, `int` (abs ≤ 2**53), finite `float`, `str` (≤ MAX_STR_LEN chars) | inline, as in v1 |
-| `list`, `tuple` | ref → `{kind: "list"/"tuple", items}` |
-| `dict` | ref → `{kind: "dict", entries}` (keys and values are snapshot values) |
-| `set`, `frozenset` | ref → `{kind: "set", items}`, primitives sorted by (rank, value) with numbers < strings < others, non-primitives after them in iteration order |
-| `collections.deque` | ref → `{kind: "deque", items}` (front first) |
-| instance of a class whose `__module__` is `"__main__"` and that passes the safety check | ref → `{kind: "object", fields}` |
-| functions, classes, modules, generators, other objects, anything over a cap | placeholder `{"__type__": name}` |
-
-- **Safety check for student-defined objects:** read the class's own
-  `__dict__` mapping (never attribute lookup). Reject the class if any class in
-  its MRO other than `object` defines `__getattribute__`, `__getattr__`, or
-  `__slots__`, or if the first `__dict__` entry found by walking the MRO
-  (each class's own `__dict__` mapping) is not a
-  `types.GetSetDescriptorType`, which a student `__dict__` property would be. Read the instance dict with
-  `object.__getattribute__(obj, "__dict__")`, require exact type `dict`, and
-  keep `str` keys not starting with `__`.
-- **Set order:** sort keys use only exact primitive types, so sorting never
-  calls student code, and the order is the same under any `PYTHONHASHSEED`.
+  so a Python `id` is never reused for another object mid-run, and an object
+  keeps its id across steps.
+- **What goes in:** each step's `heap` holds every heap object reachable from
+  the stack locals (outermost first), the current locals, `returnValue`, and
+  other heap objects' fields, visited in that order. Objects that refer to
+  each other just use refs.
+- **Cap:** at most MAX_HEAP_OBJECTS (60) per step. Further objects become
+  placeholders, and `truncated` is set.
+- **Safety check for student-defined objects:**
+  - The class's `__module__`, read from its own `__dict__` mapping, must be
+    `"__main__"`.
+  - Reject the class if any class in its MRO other than `object` defines
+    `__getattribute__`, `__getattr__`, or `__slots__`.
+  - Reject it if the first `__dict__` entry found by walking the MRO (each
+    class's own `__dict__` mapping) is not a `types.GetSetDescriptorType`,
+    which a student `__dict__` property would be.
+  - Read the instance dict with `object.__getattribute__(obj, "__dict__")`,
+    require exact type `dict`, and keep `str` keys that don't start with `__`
+    as `fields`.
 
 ### Stack
 For each step, walk `frame.f_back` through user frames that the tracer has
-state for, and emit them outermost first with their v1 frame state and a locals
-snapshot. The module frame is the first entry whenever the current frame is a
-function.
+state for. Emit them outermost first as `{functionName, frameId, line,
+locals}`, with line `f_lineno or 1`, clamped to the program. The current frame
+is not included. Its depth equals `len(stack)`, which matches
+`TraceStep.depth`.
 
 ### Caps
 
@@ -122,27 +128,31 @@ function.
 | MAX_STEPS | 2000 | was 300 |
 | MAX_ITEMS | 20 | per container; was 10 |
 | MAX_STR_LEN | 200 | unchanged |
-| MAX_OBJECTS | 60 | per step; further objects become placeholders |
+| MAX_NEST_DEPTH | 4 | inline container nesting |
+| MAX_HEAP_OBJECTS | 60 | per step |
 | STDOUT_BYTE_CAP | 4000 | unchanged |
-| STEP_BYTE_CAP | 16000 | now covers `objects` and `stack` |
+| STEP_BYTE_CAP | 16000 | now covers `heap` and `stack` |
 | TRACE_BYTE_CAP | 3,000,000 | compact JSON of the whole result |
 
-- **Step byte cap fallback, in order:** empty the stack frames' locals; cut
-  every object to its first 5 items; then turn every ref into a placeholder
-  and empty `objects`; then the v1 stages.
+- **Step byte cap fallback**, in this order:
+  1. empty the stack frames' locals
+  2. replace each heap object's fields with placeholders
+  3. replace every value in locals with its placeholder, then empty `heap`
+     (refs are gone by then, so nothing dangles)
+  4. the earlier stdout stage
 - **Trace byte cap:** keep a running byte count. When the next step would
   exceed it, stop with status `"limit"`, `truncated: true`, and the message
   "Stopped because this run made too much data to show. Try a smaller input."
 - **Limit message:** "Stopped after {len(steps)} steps. Is there a loop that
-  never ends?" This fixes the v1 mismatch where the message said 300 but the
+  never ends?" This fixes the old mismatch where the message said 300 but the
   trace held 299 steps. The reserved slot for the terminal exception step
   stays.
 
 ## Level 2 lessons
 Sources must match byte for byte in `frontend/src/lessons.ts` and
 `frontend/src/py/gen_fixtures.py`. Each file ends with a newline. Step counts
-were measured with the current (v1) tracer; v2 only changes snapshots, so the
-counts should not change.
+were measured with the tracer before the contract change. The new value forms
+only change snapshots, so the counts should not change.
 
 | id | Title (en / es) | Pattern | Steps | Prints |
 |---|---|---|---|---|
@@ -300,34 +310,40 @@ print(ways[n])
 `lessons.ts` gains `level: 1 | 2`, `pattern?: string`, and
 `statement?: { en: string; es: string }`.
 
-## Shared object helpers (explainer owns, UI imports)
-`frontend/src/explain/objects.ts`, pure functions:
-- `isRef(v)` and `resolve(v, objects)`
-- `describeShort(v, objects, lang)`, e.g. "dict with 2 keys" or
-  "TreeNode(val=2)"
-- `diffObjects(prev, curr)`, which returns changes per id: key added, value
-  changed, set item added or removed, list item changed at an index, deque push
-  or pop at the front or back, field changed
+## Shared value helpers (explainer owns, UI imports)
+`frontend/src/explain/snapshot.ts`, pure functions:
+- `kindOf(v)` returns `"primitive" | "placeholder" | "array" | "set" | "dict"
+  | "deque" | "ref"`.
+- `resolveRef(v, heap)` and `describeShort(v, heap, lang)`, e.g. "dict with 2
+  keys" or "TreeNode(val=2)".
+- `diffValue(prev, curr)` compares one variable's value across two steps:
+  - dict key added, changed, or removed
+  - set item added or removed
+  - array item changed at an index
+  - deque push or pop at the front or back
+- `diffHeap(prevHeap, currHeap)` reports field changes per heap id.
 
-The UI's change markers and the explanation templates use the same diff, so
-they always agree.
+Containers are matched by variable name in the same frame; heap objects are
+matched by id. The UI's change markers and the explanation templates use the
+same helpers, so they always agree.
 
 ## Visualizers
 `frontend/src/components/visualizers/`. A **Data structures** panel under the
-variable table shows one visualizer for each local in the current frame whose
-value is a ref, in local order. A second name for the same object shows "same
-object as `x`" instead of drawing it again. Detection works on the data alone:
+variable table shows one visualizer per local in the current frame whose value
+is a tagged value, a ref, or an array, in local order. A second name for the
+same heap object shows "same object as `x`" instead of drawing it again.
+Detection works on the data alone:
 
 | Visualizer | Chosen when | Shows | Change markers |
 |---|---|---|---|
-| Graph | a dict with ≥ 2 entries whose keys are primitives and whose every value is a list, tuple, or set holding only keys of that dict | nodes and edges (SVG, circular layout in key order) | per-node text badges taken from other locals: "visited" (in a set local), "in queue" (in a deque local), "← person" (a local equal to the key) |
-| Hash map | any other dict | key \| value table | "added", `old → new` |
-| Set | kind `set` | sorted chips | "added", "removed" |
-| Queue | kind `deque` | strip with "front" and "back" labels | "added at back", "removed from front" (and the reverse) |
-| Array | list or tuple of primitives | indexed cells (wave 1), plus pointer markers | `old → new` per cell. Pointer markers: an int local in the same frame whose name appears inside `<listname>[...]` in the source and whose value is a valid index gets an arrow labeled with its name (`left`, `right`, `i`). On the highlighted line, `name[v ± k]` gets a "used by next line" marker. |
-| Tree | student objects with `left` and `right` fields that are `None` or refs to objects of the same type | layered SVG tree; label = `val` field, else the first primitive field | nodes referenced by the current frame or any stack frame get a text badge (`node in max_depth`) |
-| Call stack | `stack` is non-empty | frames outermost first, each with its locals (refs as `describeShort`), current frame marked "running" | "called", "returned <value>" |
-| Fallback | anything else | type name plus fields or items as a list | `old → new` |
+| Graph | a `__dict` with ≥ 2 entries whose keys are primitives and whose every value is an array or `__set` holding only keys of that dict | nodes and edges (SVG, circular layout in key order) | per-node text badges taken from other locals: "visited" (in a `__set` local), "in queue" (in a `__deque` local), "← person" (a local equal to the key) |
+| Hash map | any other `__dict` | key \| value table | "added", `old → new`, "removed" |
+| Set | `__set` | chips in snapshot order | "added", "removed" |
+| Queue | `__deque` | strip with "front" and "back" labels | "added at back", "removed from front" (and the reverse) |
+| Array | array of primitives | indexed cells, plus pointer markers | `old → new` per cell. Pointer markers: an int local in the same frame whose name appears inside `<listname>[...]` in the source and whose value is a valid index gets an arrow labeled with its name (`left`, `right`, `i`). On the highlighted line, `name[v ± k]` gets a "used by next line" marker. |
+| Tree | heap objects with `left` and `right` fields that are `null` or refs to heap objects of the same `type` | layered SVG tree; label = `val` field, else the first primitive field | nodes referenced by the current locals or any stack frame get a text badge (`node in max_depth`) |
+| Call stack | `stack` is non-empty | frames outermost first with their locals (refs as `describeShort`), then the current frame marked "running" | "called", "returned <value>" |
+| Fallback | anything else (nested arrays, heap objects that aren't trees, placeholders) | type name plus items or fields as a list | `old → new` |
 
 Accessibility:
 - Each SVG visualizer has a text alternative, visible or behind a "Show as
@@ -335,73 +351,86 @@ Accessibility:
   - Graph: an adjacency list with the badges.
   - Tree: a nested list.
   - Call stack: an ordered list.
-- The narrator adds the top structure change for the step from `diffObjects`.
+- The narrator adds the top structure change for the step.
 - No animation is required. Any transition is disabled under
   `prefers-reduced-motion`.
 
 ## Explanations
-- New template cases, in English and Spanish, built from `diffObjects`:
-  - key added
-  - value changed
+- New template cases, in English and Spanish, built from `diffValue` and
+  `diffHeap`:
+  - dict key added or changed
   - set add/remove
-  - list item changed
+  - array item changed
   - deque push/pop at either end
-  - object field set
+  - heap object field set
   - recursive call ("max_depth calls itself again on the left child")
   - recursive return
-- Templates use only values present in prev/curr and their objects, and never
-  state stack depth as a number.
-- `inventedNumbers` sources now include object items, entries, fields, `len`,
-  and stack locals. Object ids, `index`, and `depth` stay excluded.
+- Templates use only values present in prev/curr, their heaps, and their
+  stacks, and never state stack depth as a number.
+- `inventedNumbers` already walks arrays, so it covers tagged values. Its
+  sources now also include heap fields and stack locals. Heap ids, `index`,
+  and `depth` stay excluded.
 - `/api/explain`:
-  - sends `objects` and `stack` to the LLM
+  - sends `heap` and `stack` to the LLM
   - removes stack locals first if the payload cap is reached
   - keeps MAX_PAYLOAD_BYTES at 40000, which fits two STEP_BYTE_CAP steps
 
 ## Rollout
-1. Task 1 lands the types, plus the one-line `version: 2` in `traceClient.ts`,
-   in a single change so the contract-guard typecheck passes. The tracer still
-   emits v1 at this point; nothing reads `version` yet.
-2. Tasks 2–3 (tracer, fixtures) and 4–7 (explainer, UI) are built in parallel
-   against the regenerated fixtures. They merge together, so the app never
-   shows raw refs.
-3. Task 8 runs acceptance and a11y checks on the merged result.
+1. **Task 1 is done.** `trace.ts`, `tech.md`, and `loop.json` have the new
+   shape, and typecheck passes. The tracer still emits the old shape, so until
+   task 2 lands:
+   - `test_loop_lesson_equals_fixture` and `test_lesson_equals_fixture[loop]`
+     fail
+   - `gen_fixtures.py --check` and `pyodide-check.mjs` report loop as out of
+     date
+2. **Task 2 changes dicts** from plain JSON objects to `__dict`. Wave-1/2 code
+   renders a plain object as key/value pairs, so a student dict would show a
+   single `__dict` key. Tasks 2, 3, 4 and 5 merge together, so the app never
+   shows raw tags.
+3. **Tasks 6–7** add the visualizers on top. Task 8 checks acceptance and
+   a11y on the merged result.
 
 ## Testing
 **Tracer:**
-- unit tests per kind
-- aliasing (two names, one ref)
-- cycles
-- id stability across steps
+- unit tests for each value form
+- nesting and cycle caps
+- dict key order and int keys
+- heap id stability across steps
+- shared refs between two names
+- objects that reference each other
 - set order identical across `PYTHONHASHSEED` values (subprocess runs)
 - hostile classes (`__getattribute__`, `__eq__`, `__hash__`, a `__dict__`
   property, `__slots__`) are never invoked and become placeholders
+- stack order and the excluded current frame
 - each cap and its `truncated` flag
 - `while True` limit under 2 s
 
-**Properties:** Hypothesis (a)–(e) under v2, plus "every ref resolves within
-its step". The program strategy adds dict/set/list mutation and one small
-class.
+**Properties:** Hypothesis (a)–(e) under the new contract, plus "every ref
+resolves within its step". The program strategy adds dict/set/list mutation
+and one small class.
 
 **Fixtures:** `gen_fixtures.py --check` covers nine lessons. The Pyodide check
 compares all nine with CPython byte for byte and times each one.
 
-**UI and explainer:** pure functions (detection, layout, `diffObjects`,
-templates) get `node --test` suites, as in waves 1 and 2. The UI is checked in
-the browser against the acceptance tests in `docs/plan.md`.
+**UI and explainer:** pure functions (detection, layout, `diffValue`,
+`diffHeap`, templates) get `node --test` suites, as in waves 1 and 2. The UI
+is checked in the browser against the acceptance tests in `docs/plan.md`.
 
 ## Risks
-- **Pyodide speed:** snapshotting objects on every step costs up to
-  MAX_OBJECTS × MAX_ITEMS per step.
+- **List aliasing isn't visible.** Containers are copied by value, so
+  `b = a; b.append(1)` shows two lists that both changed, with no "same
+  list" marker. Showing it would need a contract change; the Level 2 lessons
+  don't depend on it.
+- **Pyodide speed:** containers are serialized inline on every step.
   - Measure a 2000-step loop that mutates a 20-item list and dict.
-  - If it doesn't fit in the 3 s timeout, either reuse unchanged snapshots
-    (compare shallow contents) or raise TRACE_TIMEOUT_MS. That decision belongs
-    to trace-engineer and integrator.
+  - If it doesn't fit in the 3 s timeout, either cache unchanged snapshots
+    (compare shallow contents) or raise TRACE_TIMEOUT_MS. That decision
+    belongs to trace-engineer and integrator.
 - **Trace size:** 2000 steps can be several MB, which matters for the worker
   message and memory on Chromebooks. TRACE_BYTE_CAP bounds it.
 - **Detection on student code:** heuristics can misfire on students' own
   solutions. The fallback view is always correct, so prefer the fallback over a
   wrong diagram.
-- **Contract break:** v2 changes what `locals` values mean. Everything that
-  reads values (Variables, Arrays, change markers, explainer, number check,
-  fixtures) moves to v2 in the same merge.
+- **Dict shape change:** every reader of dict values (Variables, Arrays,
+  change markers, explainer values and number check) moves to `__dict` in the
+  same merge as task 2.

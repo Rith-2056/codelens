@@ -4,12 +4,12 @@
     {
       "name": "Frozen contract guard (save)",
       "trigger": "PostFileSave",
-      "description": "When frontend/src/types/trace.ts is saved, warn that the FROZEN shared contract changed and run npm run typecheck.",
+      "description": "When frontend/src/types/trace.ts is saved, warn that the FROZEN shared contract changed, run npm run typecheck, and regenerate every fixture in shared/fixtures/ by running tracer.py in CPython. Fixtures are only written if every trace has the fields trace.ts requires.",
       "matcher": "(^|/)frontend/src/types/trace\\.ts$",
       "action": {
         "type": "command",
-        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/frontend\" || exit 1; msg=\"WARNING: frontend/src/types/trace.ts (the FROZEN shared contract) was changed. Only the integrator may change it, and every workstream depends on it. Review with: git diff -- frontend/src/types/trace.ts\"; echo \"$msg\"; echo \"$msg\" >&2; out=$(npm run typecheck 2>&1); code=$?; echo \"$out\" | tail -30; if [ \"$code\" -ne 0 ]; then echo \"typecheck FAILED (exit $code) after contract change\" >&2; exit 1; fi; echo \"typecheck passed\"",
-        "timeout": 120
+        "command": "root=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; msg=\"WARNING: frontend/src/types/trace.ts (the FROZEN shared contract) was changed. Only the integrator may change it, and every workstream depends on it. Review with: git diff -- frontend/src/types/trace.ts\"; echo \"$msg\"; echo \"$msg\" >&2; cd \"$root/frontend\" || exit 1; fail=0; out=$(npm run typecheck 2>&1); code=$?; echo \"$out\" | tail -30; if [ \"$code\" -ne 0 ]; then echo \"typecheck FAILED (exit $code) after contract change\" >&2; fail=1; else echo \"typecheck passed\"; fi; cd \"$root\" || exit 1; if [ ! -x .venv/bin/python ]; then echo \"fixture regen: .venv/bin/python not found. Create it with: uv venv .venv && uv pip install --python .venv/bin/python -r requirements-dev.txt\" >&2; exit 1; fi; gout=$(.venv/bin/python frontend/src/py/gen_fixtures.py --all 2>&1); gcode=$?; echo \"$gout\" | tail -20; if [ \"$gcode\" -ne 0 ]; then echo \"fixture regeneration FAILED (exit $gcode); shared/fixtures/ left unchanged\" >&2; fail=1; else echo \"fixtures regenerated in shared/fixtures/ from tracer.py (CPython)\"; fi; exit $fail",
+        "timeout": 180
       }
     }
   ]

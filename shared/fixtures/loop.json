@@ -11,7 +11,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": {},
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 1,
@@ -21,7 +23,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": {},
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 2,
@@ -31,7 +35,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": { "numbers": [3, 1, 2] },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 3,
@@ -41,7 +47,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": { "numbers": [3, 1, 2], "total": 0 },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 4,
@@ -51,7 +59,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": { "numbers": [3, 1, 2], "total": 0, "n": 3 },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 5,
@@ -61,7 +71,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": { "numbers": [3, 1, 2], "total": 3, "n": 3 },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 6,
@@ -71,7 +83,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": { "numbers": [3, 1, 2], "total": 3, "n": 1 },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 7,
@@ -81,7 +95,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": { "numbers": [3, 1, 2], "total": 4, "n": 1 },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 8,
@@ -91,7 +107,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": { "numbers": [3, 1, 2], "total": 4, "n": 2 },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 9,
@@ -101,7 +119,9 @@
       "frameId": "module",
       "depth": 0,
       "locals": { "numbers": [3, 1, 2], "total": 6, "n": 2 },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": []
     },
     {
       "index": 10,
@@ -112,7 +132,9 @@
       "depth": 0,
       "locals": { "numbers": [3, 1, 2], "total": 6, "n": 2 },
       "stdout": "",
-      "returnValue": null
+      "returnValue": null,
+      "heap": {},
+      "stack": []
     }
   ]
 }

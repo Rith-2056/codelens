@@ -1,43 +1,52 @@
 # Tasks: ds-visualizers
 
-- [ ] 1. Land contract v2 (integrator)
-  - Add `Ref`, `ObjectSnapshot`, `StackFrame`, `objects`, `stack`, and `version: 2` to `frontend/src/types/trace.ts`, exactly as in design.md.
-  - In the same change, add `version: 2` to the timeout result in `frontend/src/worker/traceClient.ts` (coordinate with trace-engineer) so the contract-guard hook's typecheck passes.
-  - Move the contract in `.kiro/steering/tech.md` and `docs/plan.md` from "planned" to "current".
-  - _Requirements: 1.1–1.4_
+- [x] 1. Land the contract (integrator), done 2026-10-24
+  - `frontend/src/types/trace.ts` defines the tagged forms (`SetValue`, `DictValue`, `DequeValue`, `RefValue`), `HeapObject`, `StackFrame`, and `heap` / `stack` on `TraceStep`. `JsonValue` is unchanged, because the tagged forms already fit its object member.
+  - `.kiro/steering/tech.md` marks the contract FROZEN with the version note 2026-10-24.
+  - `shared/fixtures/loop.json` has `heap: {}` and `stack: []` on every step.
+  - `npm run typecheck` passes.
+  - Left for task 2: the tracer still emits the old shape, so the two loop-fixture tests in `tests/test_tracer.py` fail until then.
+  - _Requirements: 1.1–1.5_
 
-- [ ] 2. Snapshot objects, stack, and new limits in the tracer (trace-engineer)
-  - Implement the object table, deterministic ids, refs, kinds (list, tuple, dict, set, frozenset, deque, student objects), set ordering, cycle handling, and the safety check from design.md.
-  - Record `stack` on every step and add `version: 2` to results.
-  - Set MAX_STEPS = 2000, MAX_ITEMS = 20, MAX_OBJECTS = 60, and TRACE_BYTE_CAP. Make the limit message state the real step count, and extend the step byte cap fallback.
-  - Tests: every kind, aliasing, cycles, id stability, hash-seed independence, hostile classes, each cap and `truncated`, and `while True` limit under 2 s. Update the Hypothesis properties (a)–(e) for v2 and add "every ref resolves".
+- [ ] 2. Emit the new value forms, heap, and stack from the tracer (trace-engineer)
+  - Write lists and tuples as arrays, dicts as `__dict`, sets as `__set` (sorted when possible), and deques as `__deque`. Write student-defined objects as `__ref` into `heap`, with deterministic ids and the safety check from design.md.
+  - Fill `stack` (calling frames, outermost first, current frame excluded) and `heap` on every step.
+  - Set MAX_STEPS = 2000, MAX_ITEMS = 20, MAX_NEST_DEPTH = 4, MAX_HEAP_OBJECTS = 60, and TRACE_BYTE_CAP. Make the limit message state the real step count, and extend the step byte cap fallback.
+  - Tests:
+    - each value form, nesting and cycle caps, int dict keys, heap id stability, shared refs, hash-seed-independent set order, hostile classes, stack order, each cap and `truncated`, and `while True` limit under 2 s
+    - update the Hypothesis properties (a)–(e) and add "every ref resolves"
+    - the two failing loop-fixture tests pass again
   - _Requirements: 2.1–2.7, 3.1–3.6, 8.1_
 
 - [ ] 3. Add the Level 2 lessons and regenerate all fixtures (trace-engineer, ui-builder)
-  - trace-engineer: add the six sources from design.md to `gen_fixtures.py` and generate v2 fixtures for all nine lessons (Level 1 fixtures change too, because lists become refs). Extend `pyodide-check.mjs` to all nine with CPython parity and per-lesson timing.
+  - trace-engineer:
+    - Add the six sources from design.md to `gen_fixtures.py`.
+    - Regenerate `branch.json` and `function.json` (now with `heap`/`stack`) and add the six Level 2 fixtures. Confirm `loop.json` matches tracer output.
+    - Extend `pyodide-check.mjs` to all nine lessons, with CPython parity and per-lesson timing.
   - ui-builder: add the same sources byte for byte to `lessons.ts`, with `level`, `pattern`, and the en/es statements. Group the picker by Level 1 and Level 2 and show the statement.
   - _Requirements: 4.1–4.5, 7.4, 8.2_
 
-- [ ] 4. Shared object helpers and structure-change explanations (explainer)
-  - Add `frontend/src/explain/objects.ts` (`isRef`, `resolve`, `describeShort`, `diffObjects`) for both the explainer and the UI.
-  - Move the existing templates to v2 values. Add the new en/es cases (dict, set, list item, deque, object field, recursive call and return).
-  - Extend `inventedNumbers` sources to objects and stack. Update `/api/explain` to send `objects`/`stack` within the payload cap.
-  - Tests: every new case in both languages, `diffObjects` per kind, and the number check across all nine fixtures.
+- [ ] 4. Shared value helpers and structure-change explanations (explainer)
+  - Add `frontend/src/explain/snapshot.ts` (`kindOf`, `resolveRef`, `describeShort`, `diffValue`, `diffHeap`) for both the explainer and the UI.
+  - Move the existing value formatting and templates to the tagged forms. Add the new en/es cases: dict, set, array item, deque, heap field, and recursive call and return.
+  - Extend `inventedNumbers` sources to heap fields and stack locals. Update `/api/explain` to send `heap`/`stack` within the payload cap.
+  - Tests: every new case in both languages, each helper per kind, and the number check across all nine fixtures.
   - _Requirements: 5.1–5.3_
 
-- [ ] 5. Move the UI to v2 and add the call stack (ui-builder)
-  - Resolve refs in Variables, Arrays, and change markers using `objects.ts`. Mark aliases as "same object as `x`".
+- [ ] 5. Move the UI to the new value forms and add the call stack (ui-builder)
+  - Render tagged values and refs in Variables, Arrays, and change markers using `snapshot.ts`. Mark names that share a heap object as "same object as `x`".
   - Add the Data structures panel and the fallback view.
   - Add the CallStack visualizer with a text alternative.
+  - Merge together with tasks 2–4, so raw tags never reach the screen.
   - _Requirements: 6.1, 6.2, 6.4, 7.1_
 
 - [ ] 6. Hash map, set, queue, and array pointer visualizers (ui-builder)
-  - Build HashMap, Set, and Queue, and add pointer markers (including "used by next line") to array cells, using the detection rules in design.md.
-  - Text change markers come from `diffObjects`. Detection rules get `node --test` coverage.
+  - Build HashMap (`__dict`), Set (`__set`), and Queue (`__deque`), and add pointer markers (including "used by next line") to array cells, using the detection rules in design.md.
+  - Text change markers come from `diffValue`. Detection rules get `node --test` coverage.
   - _Requirements: 6.1–6.3, 7.1–7.3_
 
 - [ ] 7. Graph and tree visualizers (ui-builder)
-  - Build Graph (circular layout, visited / in queue / current badges) and Tree (layered layout, badges for nodes referenced by the current frame or the stack). Each has a text alternative.
+  - Build Graph (adjacency `__dict`, circular layout, visited / in queue / current badges) and Tree (heap objects with `left`/`right`, layered layout, badges for nodes referenced by the current locals or the stack). Each has a text alternative.
   - The narrator adds the step's top structure change. Respect `prefers-reduced-motion`.
   - _Requirements: 6.1–6.3, 7.1–7.3_
 

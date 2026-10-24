@@ -56,7 +56,8 @@ DLCS standards, simple recursion call-stack view (stop by 4 PM).
    its problem statement.
 10. Data-structure visualizers: hash map table, set, array cells with index
     pointers, queue, graph with visited markers, binary tree, call stack.
-11. Snapshot contract v2: containers and objects shared by reference.
+11. Snapshot contract (frozen, version 2026-10-24): tagged set, dict, and
+    deque values, student-defined objects in a heap, and a call stack.
 
 ## Non-goals
 No accounts, database, analytics, grading storage, multiplayer, package

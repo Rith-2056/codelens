@@ -22,7 +22,7 @@ codelens/
 - `trace-engine`: tracer, worker, Pyodide check (v1, done)
 - `timeline-ui`: step viewer, editor, state machine, explanation panel (done)
 - `explain-service`: templates, `/api/explain`, client (done)
-- `ds-visualizers`: contract v2, Level 2 lessons, data-structure visualizers
+- `ds-visualizers`: tracer for the 2026-10-24 contract, Level 2 lessons, data-structure visualizers
 
 ## Workstreams and file ownership
 Each workstream edits only its own folders. The frozen contract in

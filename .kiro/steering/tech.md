@@ -12,12 +12,29 @@
 - Preload the worker on page open; show precomputed fixture traces instantly
   while Python loads.
 
-## FROZEN shared contract (v1, current)
-This contract is frozen. Owned by the integrator in
-`frontend/src/types/trace.ts`. Do not change field names, types, or shapes.
+## FROZEN shared contract
+This contract is FROZEN. Version 2026-10-24: adds the tagged set, dict,
+deque, and ref value forms, plus `heap` and `stack` on every step. Owned by
+the integrator in `frontend/src/types/trace.ts`. Do not change field names,
+types, or shapes.
 
 ```ts
 type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
+
+// Tagged JsonValue forms (each is a one-key object, so it is already a JsonValue):
+type SetValue   = { __set: JsonValue[] };               // sorted when possible
+type DictValue  = { __dict: [JsonValue, JsonValue][] }; // keeps insertion order and non-string keys
+type DequeValue = { __deque: JsonValue[] };             // front first
+type RefValue   = { __ref: string };                    // points into heap
+
+type HeapObject = { id: string; type: string; fields: Record<string, JsonValue> };
+
+type StackFrame = {
+  functionName: string;
+  frameId: string;
+  line: number;
+  locals: Record<string, JsonValue>;
+};
 
 type TraceStep = {
   index: number;
@@ -26,10 +43,12 @@ type TraceStep = {
   functionName: string;
   frameId: string;
   depth: number;
-  locals: Record<string, JsonValue>;
+  locals: Record<string, JsonValue>;   // current frame only
   stdout: string;            // cumulative
   returnValue?: JsonValue;
   error?: { type: string; message: string };
+  heap: Record<string, HeapObject>;
+  stack: StackFrame[];       // calling frames, outermost first
 };
 
 type TraceResult = {
@@ -41,24 +60,25 @@ type TraceResult = {
 };
 ```
 
-### Planned: contract v2
-Specified in `.kiro/specs/ds-visualizers/design.md`. v2 keeps every v1 field
-and adds `objects` and `stack` to each step and `version: 2` to the result.
-Lists, tuples, dicts, sets, deques, and student-defined objects become
-references (`{"__ref__": "o1"}`) into `objects`. Only the integrator lands it
-(ds-visualizers task 1). Until then, build against v1 and treat v2 as a
-proposal.
+- `TraceStep.locals` stays the current frame's locals. `stack` holds the
+  frames that called it, outermost first, and does not repeat the current
+  frame.
+- Lists and tuples stay plain JSON arrays. A dict is always written as
+  `{"__dict": ...}`, never as a plain JSON object.
+- Placeholders keep their existing `{"__type__": name}` shape.
+- `heap` holds objects reached through `{"__ref": id}`; every ref in a step
+  resolves in that step's `heap`.
 
 ## Tracer rules
 - Use `sys.settrace` for call, line, return, exception events. Line events fire
   BEFORE the line runs: the UI says "Next line to run".
 - Compile with filename `codelens_user.py`; record only frames from that
   filename.
-- Snapshot locals without running student code (exact type checks only).
-  Contract v1: primitives and short lists/dicts/tuples of primitives; anything
-  else becomes a type-only placeholder. Contract v2: containers and
-  student-defined objects become shared object snapshots, as in the spec.
-  Never call arbitrary repr.
+- Snapshot locals without running student code (exact type checks only), using
+  the contract's value forms: lists and tuples as arrays, sets as `__set`,
+  dicts as `__dict`, deques as `__deque`, student-defined objects as `__ref`
+  into `heap`; anything else becomes a type-only placeholder. Never call
+  arbitrary repr.
 - Capture stdout with a byte cap.
 - MAX_STEPS = 2000 is the main infinite-loop guard. Raise the limit as a
   subclass of BaseException (not Exception) so student `except Exception`

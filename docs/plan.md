@@ -51,7 +51,7 @@ Should-have if time allows: language toggle, lessons tagged with Massachusetts D
 ## Level 2 features (spec: `.kiro/specs/ds-visualizers`)
 9. Level 2 lessons: the six interview-pattern lessons above, grouped by level in the lesson picker, each showing its problem statement.
 10. Data-structure visualizers: hash map table, set, array cells with index pointers (two pointers, DP table), queue, graph with visited markers, binary tree, and a call stack for recursion. Every change has a text marker and every diagram has a text alternative.
-11. Snapshot contract v2: containers and objects are shared by reference, so aliasing, nesting, int dict keys, sets, deques, and user objects such as `TreeNode` display accurately.
+11. Snapshot contract (frozen, version 2026-10-24): tagged set, dict, and deque values (dicts keep insertion order and int keys), student-defined objects such as `TreeNode` in a per-step heap by reference, and a call stack on every step.
 
 ## Non-goals
 No accounts, database, analytics, grading, multiplayer, package installation, file access, or server-side code execution. No linked lists, heaps, tries, or union-find. No online judging: no hidden test cases and no pass/fail verdicts on submitted solutions.
@@ -91,9 +91,25 @@ codelens/
   README.md  KIRO_USAGE.md  LICENSE
 ```
 
-## FROZEN shared contract (v1, current)
+## FROZEN shared contract (version 2026-10-24)
+Source of truth: `frontend/src/types/trace.ts`, mirrored in `.kiro/steering/tech.md`. Owned by the integrator.
 ```ts
 type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
+
+// Tagged JsonValue forms (each is a one-key object, so it is already a JsonValue):
+type SetValue   = { __set: JsonValue[] };               // sorted when possible
+type DictValue  = { __dict: [JsonValue, JsonValue][] }; // keeps insertion order and non-string keys
+type DequeValue = { __deque: JsonValue[] };             // front first
+type RefValue   = { __ref: string };                    // points into heap
+
+type HeapObject = { id: string; type: string; fields: Record<string, JsonValue> };
+
+type StackFrame = {
+  functionName: string;
+  frameId: string;
+  line: number;
+  locals: Record<string, JsonValue>;
+};
 
 type TraceStep = {
   index: number;
@@ -102,10 +118,12 @@ type TraceStep = {
   functionName: string;
   frameId: string;
   depth: number;
-  locals: Record<string, JsonValue>;
+  locals: Record<string, JsonValue>;   // current frame only
   stdout: string;            // cumulative
   returnValue?: JsonValue;
   error?: { type: string; message: string };
+  heap: Record<string, HeapObject>;
+  stack: StackFrame[];       // calling frames, outermost first
 };
 
 type TraceResult = {
@@ -116,12 +134,11 @@ type TraceResult = {
   codeHash: string;
 };
 ```
-Contract v2 is specified in `.kiro/specs/ds-visualizers/design.md`. It keeps every v1 field, adds `objects` and `stack` to each step and `version: 2` to the result, and turns container and object values into references. Only the integrator lands it in `frontend/src/types/trace.ts`; until then v1 stays frozen.
 
 ## Tracer rules
 - Use `sys.settrace` for call, line, return, exception events. Line events fire BEFORE the line runs: the UI says "Next line to run".
 - Compile with filename `codelens_user.py`; record only frames from that filename.
-- Snapshot locals without running student code. Contract v1: primitives and short lists/dicts/tuples of primitives; anything else becomes a type-only placeholder. Contract v2: lists, tuples, dicts, sets, deques, and instances of classes defined in the student's code become shared object snapshots. Never call arbitrary repr.
+- Snapshot locals without running student code, using the contract's value forms: lists and tuples as arrays, sets as `__set`, dicts as `__dict`, deques as `__deque`, and instances of classes defined in the student's code as `__ref` into `heap`; anything else becomes a type-only placeholder. Never call arbitrary repr.
 - Capture stdout with a byte cap.
 - MAX_STEPS = 2000 is the main infinite-loop guard. Raise the limit as a subclass of BaseException (not Exception) so student `except Exception` cannot swallow it. The limit message states the number of steps actually recorded.
 - Replace `input()` with a stub that raises a friendly error.
