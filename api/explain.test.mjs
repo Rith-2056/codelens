@@ -365,7 +365,9 @@ test("the system prompt is static and states the rules", () => {
 
 test("the Gemini request: fast model, system instruction, small output, and nothing stored", () => {
   const body = buildRequest({ system: "S", user: "U" });
-  assert.equal(MODEL, "gemini-3.5-flash-lite");
+  // gemini-3.5-flash-lite measured 0.9-5.9 s live (often over the 5 s budget);
+  // gemini-3.6-flash with minimal thinking measured 1.1-1.4 s.
+  assert.equal(MODEL, "gemini-3.6-flash");
   assert.equal(body.model, MODEL);
   assert.equal(body.system_instruction, "S");
   assert.equal(body.input, "U");
@@ -390,6 +392,9 @@ test("geminiComplete passes the timeout and abort signal and reads output_text",
   assert.deepEqual(reply, { text: "Hello there.", finished: true });
   assert.equal(seen[0].options.timeout_ms, 5_000);
   assert.equal(seen[0].options.fetch_options.signal, signal);
+  // No SDK retries: the first live run showed retries keep a timed-out call
+  // going for minutes (165 s) after the student already has the template.
+  assert.deepEqual(seen[0].options.retries, { strategy: "none" });
   assert.equal(seen[0].params.model, MODEL);
 });
 

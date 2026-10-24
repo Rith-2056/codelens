@@ -136,9 +136,45 @@ test("rate limit: 429 with the template text", async () => {
 test("the Gemini request: help model, system instruction, nothing stored", () => {
   const r = buildHelpRequest({ system: "S", user: "U" });
   assert.equal(r.model, HELP_MODEL);
-  assert.equal(HELP_MODEL, "gemini-3.8-flash");
+  // gemini-3.8-flash timed out at 20 s on a one-line prompt in the live check;
+  // gemini-3.6-flash answered in about 3 s.
+  assert.equal(HELP_MODEL, "gemini-3.6-flash");
   assert.equal(r.store, false);
   assert.equal(r.system_instruction, "S");
   assert.equal(r.input, "U");
   assert.ok(r.generation_config.max_output_tokens >= 512);
+});
+
+test("onReject reports why a reply was not used (codes only, no student text)", async () => {
+  const cases = [
+    [{ text: "half", finished: false }, "unfinished"],
+    [{ text: "   ", finished: true }, "empty"],
+    [{ text: "x".repeat(2000), finished: true }, "too-long"],
+    [{ text: "USE_TEMPLATE", finished: true }, "use-template"],
+    [{ text: "Try this:\n```python\nx = 1\n```", finished: true }, "code-too-early"],
+    [{ text: "Try a list with 42 items.", finished: true }, "invented-numbers"],
+  ];
+  for (const [reply, reason] of cases) {
+    const reasons = [];
+    const { h } = withLlm(reply, { onReject: (r) => reasons.push(r) });
+    await h(req(BODY));
+    assert.deepEqual(reasons, [reason], reason);
+  }
+  const reasons = [];
+  const boom = withLlm(() => {
+    throw new Error("secret details");
+  }, { onReject: (r) => reasons.push(r) });
+  await boom.h(req(BODY));
+  assert.deepEqual(reasons, ["error"]);
+  // An HTTP status, when the SDK error has one, is reported as a number only.
+  const limited = [];
+  const quota = withLlm(() => {
+    throw Object.assign(new Error("quota exceeded for key ..."), { status: 429 });
+  }, { onReject: (r) => limited.push(r) });
+  await quota.h(req(BODY));
+  assert.deepEqual(limited, ["error:429"]);
+});
+
+test("the prompt asks for plain text: no LaTeX or math markup", () => {
+  assert.match(HELP_SYSTEM_PROMPT, /no LaTeX/i);
 });

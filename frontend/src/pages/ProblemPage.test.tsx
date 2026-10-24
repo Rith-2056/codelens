@@ -304,6 +304,17 @@ describe("problem page", () => {
       expect(fetchHelp.mock.calls.map((c) => c[0].level)).toEqual([1, 2, 3]);
     });
 
+    it("shows `inline code` from the tutor as code", async () => {
+      fetchHelp.mockImplementation(async (r) => ({ text: "Look at `range(2, n)` again.", source: "llm", level: r.level as number }));
+      await runWrong();
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Show a gentle hint" }));
+      });
+      const code = help().querySelector(".help-text code");
+      expect(code?.textContent).toBe("range(2, n)");
+      expect(help().textContent).not.toMatch(/`/);
+    });
+
     it("says where the help came from", async () => {
       await runWrong();
       await act(async () => {

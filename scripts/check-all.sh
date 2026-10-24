@@ -24,7 +24,7 @@ run() {
 run "pytest"                   .venv/bin/pytest -q
 run "fixtures up to date"      .venv/bin/python frontend/src/py/gen_fixtures.py --check
 run "lessons trace ok"         .venv/bin/python frontend/src/py/check_lessons.py
-run "node tests"               node --test api/*.test.mjs frontend/src/explain/*.test.mjs frontend/src/components/*.test.mjs
+run "node tests"               node --test api/*.test.mjs frontend/src/explain/*.test.mjs frontend/src/components/*.test.mjs frontend/dev/*.test.mjs
 run "api typecheck"            frontend/node_modules/.bin/tsc -p api
 run "frontend typecheck"       npm --prefix frontend run -s typecheck
 if grep -q '"test"' frontend/package.json; then

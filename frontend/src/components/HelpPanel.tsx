@@ -12,6 +12,12 @@ const TITLE: Record<HelpLevel, string> = {
   3: "A possible fix",
 };
 
+/** `inline code` in tutor text, shown as code. */
+function Inline({ text }: { text: string }) {
+  const parts = text.split(/`([^`\n]+)`/);
+  return <>{parts.map((p, i) => (i % 2 === 1 ? <code key={i}>{p}</code> : p))}</>;
+}
+
 /** Split tutor text into paragraphs and ```fenced``` code blocks. */
 function HelpText({ text }: { text: string }) {
   const parts = text.split(/```(?:python)?\n?([\s\S]*?)```/);
@@ -25,7 +31,7 @@ function HelpText({ text }: { text: string }) {
         ) : (
           part.trim() && (
             <p key={i} className="help-text">
-              {part.trim()}
+              <Inline text={part.trim()} />
             </p>
           )
         ),

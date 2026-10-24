@@ -158,7 +158,7 @@ Decisions (2026-10-24):
 | 10 | Counterexample search in Pyodide | done |
 | 11 | Three-level AI help (hint, explanation, possible fix) | done (live Gemini wording checked in stage 13) |
 | 12 | Mistake categories and saved sessions | done |
-| 13 | Live Gemini test | paused: needs your Gemini key |
+| 13 | Live Gemini test | done; model plan for the free tier needs your decision |
 
 ### Stage 7: Claude → Gemini
 - **Docs checked first:** Google's quickstart, text generation and models pages,
@@ -438,3 +438,54 @@ Decisions (2026-10-24):
   found 0 violations. The test sessions were then removed from the browser.
 - **Checks:** all green (238 pytest, 129 node tests, 129 vitest, typecheck,
   build, bundle size).
+
+### Stage 13: live Gemini test
+The key is kept in a private file outside the repo (mode 600), passed to
+commands without being printed, and never written to any project file or the
+browser bundle. Recommendation: rotate it, since it was pasted into chat.
+
+- **Live checks first:** `api/live.check.mjs`, skipped without a key and kept
+  out of the pre-commit hook on purpose (it costs quota):
+  - both models answer
+  - `/api/explain` returns tutor text for a real loop step
+  - `/api/help` returns tutor text at all three levels for a real off-by-one
+    bug
+- **What the first live run found:**
+  - The help model `gemini-3.8-flash` took **165.8 s** for one sentence. The
+    SDK's default retries kept a timed-out call going long after the
+    endpoint's 12 s deadline had already sent the student the template.
+    Diagnosis with retries off: 3.8-flash timed out at 20 s, and it rejects
+    `thinking_level: "minimal"` with a 400. `gemini-3.6-flash` answered in
+    about 3 s.
+  - My live check never asserted the 12 s limit (fixed).
+  - `gemini-3.5-flash-lite` latency varied from 0.9 to 5.9 s, often over the
+    5 s explain budget. `gemini-3.6-flash` with minimal thinking took 1.1-1.4 s.
+  - Level 3 was sometimes rejected, but nothing showed why.
+- **Fixes, unit tests first (red, then green):**
+  - every Gemini call sets `retries: { strategy: "none" }`
+  - both endpoints use `gemini-3.6-flash` (help: low thinking; explain:
+    minimal)
+  - `/api/help` takes an `onReject` hook that reports reason codes only
+    (`timeout`, `invented-numbers`, `error:429`, ...); production leaves it
+    unset, so nothing is logged
+  - the help prompt asks for plain text (no LaTeX: one reply wrote `$n$`)
+  - inline `` `code` `` in help shows as code
+- **Live results after the fixes:**
+  - `/api/explain`: tutor text in 1.0 s ("Line 4 just finished running and
+    updated total from 0 to 3. Now the program is going back to line 3, which
+    is the next line to run.")
+  - `/api/help`: all three levels from the tutor in 2.0-3.4 s each. Level 1
+    hints at the loop's upper bound; level 2 explains that `range(2, 2)` never
+    runs; level 3 shows only `for i in range(2, n + 1):`.
+- **Free-tier quota (blocking):** `gemini-3.6-flash` allows only **20
+  requests per day** on the free tier ("Rate limit exceeded ... limit: 20
+  requests per day on Free Tier"). Our testing used it up. The app handled it
+  as designed: 429 → built-in text in about 0.3 s. Both lite models still had
+  quota (`gemini-3.1-flash-lite` answered in 1.1 s). Google doesn't publish
+  free-tier limits per model; they are shown in AI Studio.
+- **Dev server API, tests first** (`frontend/dev/apiDevServer.test.mjs`, 5):
+  a dev-only Vite plugin serves `/api/explain` and `/api/help` from the real
+  handlers. The key comes from the dev server's environment, never the
+  bundle. Verified in the browser: requests reach the handlers (200), but the
+  answers were the built-in text because of the quota.
+- **Checks:** all green (pre-commit suite; the live checks run separately).

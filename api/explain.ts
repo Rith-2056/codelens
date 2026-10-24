@@ -32,8 +32,9 @@ export const LLM_TIMEOUT_MS = 5_000;
 /** Longest LLM reply accepted (templates stay well under this). */
 export const MAX_REPLY_CHARS = 400;
 
-/** Gemini's fastest stable model: the whole call must fit in LLM_TIMEOUT_MS. */
-export const MODEL = "gemini-3.5-flash-lite";
+/** The whole call must fit in LLM_TIMEOUT_MS. Measured live: gemini-3.6-flash
+ *  with minimal thinking 1.1-1.4 s; gemini-3.5-flash-lite 0.9-5.9 s. */
+export const MODEL = "gemini-3.6-flash";
 /** The reply is one or two sentences. */
 export const MAX_OUTPUT_TOKENS = 512;
 /** The model may answer this instead of an explanation; we then use the template. */
@@ -92,7 +93,11 @@ export type InteractionParams = {
   store: false;
   generation_config: { max_output_tokens: number; thinking_level: "minimal" | "low" };
 };
-type InteractionOptions = { timeout_ms: number; fetch_options: { signal: AbortSignal } };
+type InteractionOptions = {
+  timeout_ms: number;
+  fetch_options: { signal: AbortSignal };
+  retries: { strategy: "none" };
+};
 
 /** The part of the Gemini client this file uses (so tests can pass a fake). */
 export type InteractionsClient = {
@@ -123,6 +128,9 @@ export function geminiComplete(
     const interaction = await client.interactions.create(build(prompt), {
       timeout_ms: timeoutMs,
       fetch_options: { signal },
+      // No SDK retries: they kept a timed-out call running for minutes in the
+      // live check. The handler's deadline and template already cover failures.
+      retries: { strategy: "none" },
     });
     return { text: interaction.output_text ?? "", finished: interaction.status === "completed" };
   };
