@@ -2,23 +2,41 @@
 
 Plain Python, runnable in both Pyodide (in the Web Worker) and CPython (under
 pytest). It runs a beginner's Python program under ``sys.settrace`` and returns
-a ``TraceResult`` dict matching the frozen contract in
+a ``TraceResult`` dict matching the frozen contract (version 2026-10-24) in
 ``frontend/src/types/trace.ts``.
 
 Public API:
 - ``trace(source) -> dict``: a TraceResult dict.
 - ``trace_json(source) -> str``: the same result as JSON (for the worker).
-- ``snapshot(value) -> (json_value, was_cut)``: a JSON-safe value and whether a
-  size cap dropped data.
+- ``snapshot(value) -> (json_value, was_cut)``: one value in the contract's
+  snapshot form, and whether a cap dropped data. Refs it returns point into a
+  heap that is thrown away; ``snapshot_with_heap`` keeps it.
+- ``snapshot_with_heap(values) -> (snapshots, heap, was_cut)``.
 - ``MAX_STEPS``, ``code_hash(source)``, ``empty_result(source)``.
+
+Value forms (design.md, "How Python values map to snapshot values"):
+- exact ``None``/``bool``/safe ``int``/finite ``float``/``str``: inline;
+- ``list``/``tuple``: JSON array; ``dict``: ``{"__dict": [[k, v], ...]}``;
+  ``set``/``frozenset``: ``{"__set": [...]}`` (sorted when possible);
+  ``collections.deque``: ``{"__deque": [...]}``;
+- an instance of a student-defined class that passes the safety check:
+  ``{"__ref": "o<n>"}`` plus ``heap["o<n>"] = {id, type, fields}``;
+- anything else: ``{"__type__": name}`` (``"__len__"`` added for a container
+  over MAX_ITEMS).
+
+Every step also carries ``stack``: every active user frame, outermost first,
+the current frame last (its locals are the step's locals), so
+``len(stack) == depth + 1``.
 
 Line-number rule: CPython 3.12+ reports ``f_lineno == 0`` for the module-level
 "call" event. The tracer reports line 1 instead, and clamps every line into
-``1..number of source lines`` (``shared/fixtures/loop.json`` follows this).
+``1..number of source lines``.
 
 Safety: every type check uses ``type(v) is X`` so subclasses never qualify, and
 the tracer never calls student-overridable methods (``__repr__``, ``__str__``,
-``__eq__``, ``__hash__``, ``__getattribute__``, properties) on traced values.
+``__eq__``, ``__hash__``, ``__getattribute__``, ``__getattr__``, properties)
+on traced values. Class and instance dicts are read through C-level
+descriptors fetched from ``type.__dict__`` / the class's own ``__dict__``.
 """
 
 from __future__ import annotations
@@ -30,14 +48,19 @@ import math
 import opcode as _opcode
 import re
 import sys
+import types as _types
+from collections import deque as _deque
 
-MAX_STEPS = 300
+MAX_STEPS = 2000
 
-# Snapshot / stdout / step size caps.
-MAX_ITEMS = 10
+# Snapshot / stdout / step / trace size caps (design.md, "Caps").
+MAX_ITEMS = 20
 MAX_STR_LEN = 200
+MAX_NEST_DEPTH = 4
+MAX_HEAP_OBJECTS = 200
 STDOUT_BYTE_CAP = 4000
 STEP_BYTE_CAP = 16000
+TRACE_BYTE_CAP = 3_000_000
 
 # Trace status values, matching the frozen contract's TraceResult.status.
 STATUS_OK = "ok"
@@ -55,11 +78,21 @@ USER_FILENAME = "codelens_user.py"
 MODULE_FUNCTION_NAME = "<module>"
 MODULE_FRAME_ID = "module"
 
-LIMIT_MESSAGE = "Stopped after 300 steps. Is there a loop that never ends?"
+# Formatted with the number of steps actually in the trace.
+LIMIT_MESSAGE = "Stopped after {steps} steps. Is there a loop that never ends?"
+DATA_LIMIT_MESSAGE = (
+    "Stopped because this run made too much data to show. Try a smaller input."
+)
 INPUT_MESSAGE = (
     'input() isn\'t available in CodeLens. '
     'Set the value directly, e.g. name = "Ada".'
 )
+
+
+def limit_message(n_steps: int) -> str:
+    """The step-limit message for a trace holding ``n_steps`` steps."""
+    return LIMIT_MESSAGE.format(steps=n_steps)
+
 
 # int values with absolute value above this are not exactly representable as a
 # JSON number by double-precision consumers, so they become placeholders.
@@ -68,10 +101,18 @@ _MAX_SAFE_INT = 2 ** 53
 # C-level descriptors, read directly so a metaclass or a student-defined
 # property / __getattribute__ can never intercept them.
 _type_name_getter = type.__dict__["__name__"].__get__
+_type_dict_getter = type.__dict__["__dict__"].__get__
+_type_mro_getter = type.__dict__["__mro__"].__get__
+_type_flags_getter = type.__dict__["__flags__"].__get__
 _exc_args_getter = BaseException.__dict__["args"].__get__
 _exc_traceback_getter = BaseException.__dict__["__traceback__"].__get__
 _syntax_msg_getter = SyntaxError.__dict__["msg"].__get__
 _syntax_lineno_getter = SyntaxError.__dict__["lineno"].__get__
+
+_TPFLAGS_HEAPTYPE = 1 << 9
+_GETSET_TYPE = _types.GetSetDescriptorType
+# A class (other than object) in the MRO that defines one of these is unsafe.
+_UNSAFE_CLASS_ATTRS = frozenset(("__getattribute__", "__getattr__", "__slots__"))
 
 
 def _probe_frame_locals():
@@ -130,30 +171,13 @@ def _capped(text: str):
     return text, False
 
 
+def _class_name(cls) -> str:
+    return _exact_str(_type_name_getter(cls))
+
+
 def _type_name(value) -> str:
     """The type name of ``value`` without invoking student-overridable attrs."""
-    return _exact_str(_type_name_getter(type(value)))
-
-
-def _placeholder(value, length=None):
-    """``({"__type__": name[, "__len__": n]}, was_cut)`` for ``value``."""
-    name, cut = _capped(_type_name(value))
-    ph = {"__type__": name}
-    if length is not None:
-        ph["__len__"] = length
-    return ph, cut
-
-
-def _is_json_primitive(v) -> bool:
-    """True for exact None / bool / int (safe range) / finite float / str."""
-    t = type(v)
-    if v is None or t is bool or t is str:
-        return True
-    if t is int:
-        return -_MAX_SAFE_INT <= v <= _MAX_SAFE_INT
-    if t is float:
-        return math.isfinite(v)
-    return False
+    return _class_name(type(value))
 
 
 def _line_count(source: str) -> int:
@@ -166,105 +190,288 @@ def _line_count(source: str) -> int:
 # -- snapshot --------------------------------------------------------------
 
 
+def _prim_sort_key(v):
+    """``(rank, value)`` for an exact primitive, or None if it can't be ordered.
+
+    Ranks: None < bool < number < str. Only exact types qualify, so comparing
+    keys never calls student code, and the order never depends on the string
+    hash seed.
+    """
+    t = type(v)
+    if v is None:
+        return (0, 0)
+    if t is bool:
+        return (1, v)
+    if t is int:
+        return (2, v)
+    if t is float:
+        return None if math.isnan(v) else (2, v)
+    if t is str:
+        return (3, v)
+    return None
+
+
+def _set_sort_key(v):
+    """Sort key for a set item (a primitive, or a tuple of primitives), or None."""
+    if type(v) is tuple:
+        keys = []
+        for item in v:
+            k = _prim_sort_key(item)
+            if k is None:
+                return None
+            keys.append(k)
+        return (4, tuple(keys))
+    return _prim_sort_key(v)
+
+
+# Static (non-heap) types can't change and never qualify as heap objects.
+_static_type_ids: set = set()
+_MISSING = object()
+
+
+def _dict_descriptor_for(cls):
+    """The C ``__dict__`` descriptor for instances of ``cls``, or None if unsafe.
+
+    A class is safe (design.md, "Safety check") when it and every class in its
+    MRO other than ``object`` is an exact ``type`` instance whose own
+    ``__dict__`` mapping has ``__module__ == "__main__"`` and defines none of
+    ``__getattribute__``, ``__getattr__``, ``__slots__``, and the first
+    ``__dict__`` entry found along the MRO is a C getset descriptor (a student
+    ``__dict__`` property is not). Everything is read through C-level
+    descriptors, so no metaclass or student method can run.
+    """
+    if type(cls) is not type:
+        return None  # a custom metaclass
+    if not (_type_flags_getter(cls) & _TPFLAGS_HEAPTYPE):
+        return None
+    desc = _MISSING
+    for c in _type_mro_getter(cls):
+        if c is object:
+            continue
+        if type(c) is not type:
+            return None
+        module = None
+        for k, v in _type_dict_getter(c).items():
+            if type(k) is not str or k in _UNSAFE_CLASS_ATTRS:
+                return None
+            if k == "__module__":
+                module = v
+            elif k == "__dict__" and desc is _MISSING:
+                desc = v
+        if type(module) is not str or module != "__main__":
+            return None  # a builtin or library base class
+    if type(desc) is not _GETSET_TYPE:
+        return None
+    return desc
+
+
+class _HeapIds:
+    """Run-wide table mapping ``id(obj)`` to ``"o<n>"`` in first-seen order.
+
+    It keeps every object it names alive until the run ends, so ``id()`` is
+    never reused for another object mid-run, and an object keeps its heap id
+    across steps. Python ids never reach the output.
+    """
+
+    def __init__(self):
+        self.ids: dict = {}
+        self.objects: list = []
+
+    def lookup(self, obj):
+        return self.ids.get(id(obj))
+
+    def assign(self, obj) -> str:
+        key = id(obj)
+        hid = self.ids.get(key)
+        if hid is None:
+            self.objects.append(obj)
+            hid = "o" + str(len(self.objects))
+            self.ids[key] = hid
+        return hid
+
+
+class _Snap:
+    """One step's snapshot context: converts values and collects the heap.
+
+    ``cut`` becomes True whenever a cap drops data: a shortened string, a
+    container over MAX_ITEMS, nesting past MAX_NEST_DEPTH, a container that
+    contains itself, or a heap object past MAX_HEAP_OBJECTS.
+    """
+
+    def __init__(self, ids: _HeapIds):
+        self.ids = ids
+        self.heap: dict = {}
+        self.pending: list = []  # (heap entry, instance dict) to fill in
+        self.cut = False
+        self.path: set = set()  # id()s of the containers being written
+        self.classes: dict = {}  # id(cls) -> __dict__ descriptor or None
+
+    # -- values ----------------------------------------------------------
+    def value(self, v, depth: int = 0, refs: bool = True):
+        t = type(v)
+        # Identity checks only: `t in (...)` would call a metaclass __eq__.
+        if v is None or t is bool:
+            return v
+        if t is int:
+            if -_MAX_SAFE_INT <= v <= _MAX_SAFE_INT:
+                return v
+            return {"__type__": "int"}
+        if t is float:
+            if math.isfinite(v):
+                return v
+            return {"__type__": "float"}
+        if t is str:
+            if len(v) > MAX_STR_LEN:
+                self.cut = True
+                return v[:MAX_STR_LEN]
+            return v
+        if t is list or t is tuple or t is dict or t is set or t is frozenset or t is _deque:
+            return self._container(v, t, depth, refs)
+        return self._object(v, t, refs)
+
+    def _container(self, v, t, depth, refs):
+        name = _class_name(t)
+        key = id(v)
+        if depth >= MAX_NEST_DEPTH or key in self.path:
+            self.cut = True
+            return {"__type__": name}
+        n = len(v)
+        if n > MAX_ITEMS:
+            self.cut = True
+            return {"__type__": name, "__len__": n}
+        self.path.add(key)
+        d = depth + 1
+        value = self.value
+        try:
+            if t is list or t is tuple:
+                return [value(x, d, refs) for x in v]
+            if t is dict:
+                # Iterate items instead of doing lookups: `k in v` or `v[k]`
+                # could call a student key's __hash__ / __eq__.
+                return {"__dict": [[value(k, d, False), value(x, d, refs)] for k, x in list(v.items())]}
+            if t is _deque:
+                return {"__deque": [value(x, d, refs) for x in list(v)]}
+            items = list(v)
+            keys = []
+            for x in items:
+                k = _set_sort_key(x)
+                if k is None:
+                    keys = None
+                    break
+                keys.append(k)
+            if keys is not None:
+                order = sorted(range(len(items)), key=keys.__getitem__)
+                items = [items[i] for i in order]
+            return {"__set": [value(x, d, refs) for x in items]}
+        finally:
+            self.path.discard(key)
+
+    def _object(self, v, t, refs):
+        if refs:
+            desc = self._descriptor(t)
+            if desc is not None:
+                try:
+                    inst = desc.__get__(v, t)
+                except Exception:  # noqa: BLE001 - defensive: never crash a step
+                    inst = None
+                if type(inst) is dict:
+                    hid = self.ids.lookup(v)
+                    if hid is not None and hid in self.heap:
+                        return {"__ref": hid}
+                    if len(self.heap) >= MAX_HEAP_OBJECTS:
+                        self.cut = True
+                    else:
+                        hid = self.ids.assign(v)
+                        tname, tcut = _capped(_class_name(t))
+                        if tcut:
+                            self.cut = True
+                        entry = {"id": hid, "type": tname, "fields": {}}
+                        self.heap[hid] = entry
+                        self.pending.append((entry, inst))
+                        return {"__ref": hid}
+        name, cut = _capped(_class_name(t))
+        if cut:
+            self.cut = True
+        return {"__type__": name}
+
+    def _descriptor(self, cls):
+        key = id(cls)
+        if key in _static_type_ids:
+            return None
+        cache = self.classes
+        if key in cache:
+            return cache[key]
+        desc = _dict_descriptor_for(cls)
+        if desc is None and not (_type_flags_getter(cls) & _TPFLAGS_HEAPTYPE):
+            _static_type_ids.add(key)  # static types are immortal: ids stay valid
+        cache[key] = desc
+        return desc
+
+    # -- heap ------------------------------------------------------------
+    def finish(self) -> dict:
+        """Fill in every pending heap object's fields (which may add more)."""
+        pending = self.pending
+        i = 0
+        while i < len(pending):
+            entry, inst = pending[i]
+            i += 1
+            fields = {}
+            for k, fv in list(inst.items()):
+                if type(k) is not str or k.startswith("__"):
+                    continue
+                if len(k) > MAX_STR_LEN:
+                    self.cut = True
+                    continue
+                fields[k] = self.value(fv)
+            entry["fields"] = fields
+        self.pending = []
+        return self.heap
+
+
 def snapshot(value):
-    """Return ``(json_value, was_cut)`` for ``value`` per the design table.
+    """Return ``(json_value, was_cut)`` for one value, per the design table.
 
     Only exact types qualify; subclasses and anything exotic become a type-only
-    placeholder ``{"__type__": <name>}``. ``was_cut`` is True iff a size cap
-    dropped data (a shortened string, an over-length container, or an
-    over-long type name).
+    placeholder ``{"__type__": <name>}``. ``was_cut`` is True iff a cap dropped
+    data. A student-defined object becomes a ``{"__ref": ...}`` into a heap
+    that is not returned; use ``snapshot_with_heap`` to keep it.
     """
-    t = type(value)
-
-    # None / bool / int / float / str. Identity checks only: `t in (...)`
-    # would call a metaclass __eq__.
-    if value is None or t is bool:
-        return value, False
-    if t is int:
-        if -_MAX_SAFE_INT <= value <= _MAX_SAFE_INT:
-            return value, False
-        return {"__type__": "int"}, False
-    if t is float:
-        if math.isfinite(value):
-            return value, False
-        return {"__type__": "float"}, False
-    if t is str:
-        return _capped(value)
-
-    # list / tuple of primitives -> JSON array.
-    if t is list or t is tuple:
-        n = len(value)
-        if n > MAX_ITEMS:
-            ph, _ = _placeholder(value, n)
-            return ph, True
-        out = []
-        cut = False
-        for item in value:
-            if not _is_json_primitive(item):
-                # Nested containers / objects / big numbers: type-only parent.
-                return _placeholder(value)
-            if type(item) is str and len(item) > MAX_STR_LEN:
-                item = item[:MAX_STR_LEN]
-                cut = True
-            out.append(item)
-        return out, cut
-
-    # dict with str keys and primitive values -> JSON object.
-    if t is dict:
-        n = len(value)
-        if n > MAX_ITEMS:
-            return {"__type__": "dict", "__len__": n}, True
-        # Iterate items instead of doing lookups: `k in value` or `value[k]`
-        # could call a student key's __hash__ / __eq__.
-        items = list(value.items())
-        for k, _ in items:
-            if type(k) is not str:
-                return {"__type__": "dict"}, False
-        for k, _ in items:
-            if k == "__type__":
-                # Must not masquerade as a placeholder.
-                return {"__type__": "dict"}, False
-            if len(k) > MAX_STR_LEN:
-                return {"__type__": "dict", "__len__": n}, True
-        out = {}
-        cut = False
-        for k, item in items:
-            if not _is_json_primitive(item):
-                return {"__type__": "dict"}, False
-            if type(item) is str and len(item) > MAX_STR_LEN:
-                item = item[:MAX_STR_LEN]
-                cut = True
-            out[k] = item
-        return out, cut
-
-    # Anything else: function, module, object, set, nested container, etc.
-    return _placeholder(value)
+    snap = _Snap(_HeapIds())
+    jv = snap.value(value)
+    snap.finish()
+    return jv, snap.cut
 
 
-def _locals_snapshot(frame):
-    """Snapshot a frame's locals. Returns ``(locals, type_names, was_cut)``.
+def snapshot_with_heap(values: dict):
+    """``(snapshots, heap, was_cut)`` for a ``{name: value}`` mapping."""
+    snap = _Snap(_HeapIds())
+    out = {name: snap.value(v) for name, v in values.items()}
+    heap = snap.finish()
+    return out, heap, snap.cut
 
-    Drops dunder names (Req 2.4), compiler-internal names such as ``.0``, and
-    non-``str`` keys. A class body whose namespace is a custom mapping (from a
-    metaclass ``__prepare__``) is not read at all, since reading it would run
-    student code.
+
+def _locals_snapshot(frame, snap: _Snap, want_types: bool):
+    """Snapshot a frame's locals. Returns ``(locals, type_names)``.
+
+    Drops dunder names, compiler-internal names such as ``.0``, and non-``str``
+    keys. A class body whose namespace is a custom mapping (from a metaclass
+    ``__prepare__``) is not read at all, since reading it would run student
+    code.
     """
     f_locals = frame.f_locals
     lt = type(f_locals)
     if lt is not dict and lt is not _FRAME_LOCALS_TYPE:
-        return {}, {}, False
+        return {}, {}
     out = {}
     types = {}
-    cut = False
-    for name, value in list(f_locals.items()):
+    value = snap.value
+    for name, v in list(f_locals.items()):
         if type(name) is not str or name.startswith("__") or name.startswith("."):
             continue
-        jv, was_cut = snapshot(value)
-        if was_cut:
-            cut = True
-        out[name] = jv
-        types[name] = _type_name(value)
-    return out, types, cut
+        out[name] = value(v)
+        if want_types:
+            types[name] = _type_name(v)
+    return out, types
 
 
 # -- step size cap ---------------------------------------------------------
@@ -281,44 +488,140 @@ def _to_json(obj) -> str:
 
 
 def _json_size(obj) -> int:
-    return len(_to_json(obj).encode("utf-8"))
+    """UTF-8 byte length of ``_to_json(obj)``."""
+    text = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    try:
+        return len(text.encode("utf-8"))
+    except UnicodeEncodeError:  # lone surrogates: measure the escaped form
+        return len(_SURROGATE_RE.sub(_escape_surrogate, text).encode("utf-8"))
 
 
 def _is_placeholder(jv) -> bool:
     return type(jv) is dict and "__type__" in jv
 
 
+def _jv_type_name(jv, heap) -> str:
+    """Python type name for an already-snapshotted value."""
+    if jv is None:
+        return "NoneType"
+    t = type(jv)
+    if t is list:
+        return "list"
+    if t is dict:
+        if "__dict" in jv:
+            return "dict"
+        if "__set" in jv:
+            return "set"
+        if "__deque" in jv:
+            return "deque"
+        if "__ref" in jv:
+            entry = heap.get(jv["__ref"])
+            return entry["type"] if entry is not None else "object"
+    return _class_name(t)
+
+
 def _as_placeholder(jv, type_name):
     """Type-only placeholder for an already-snapshotted value."""
     if _is_placeholder(jv):
         return jv
-    if type_name is None:
-        type_name = "NoneType" if jv is None else _type_name(jv)
     return {"__type__": _capped(type_name)[0]}
 
 
-def _fit_step(step: dict, types: dict, rv_type=None) -> bool:
+def _collect_refs(jv, out: list):
+    t = type(jv)
+    if t is list:
+        for x in jv:
+            _collect_refs(x, out)
+    elif t is dict:
+        ref = jv.get("__ref")
+        if ref is not None:
+            out.append(ref)
+        else:
+            for x in jv.values():
+                _collect_refs(x, out)
+
+
+def _prune_heap(step: dict):
+    """Keep only heap objects still reachable from the step's values."""
+    heap = step["heap"]
+    if not heap:
+        return
+    todo: list = []
+    for fr in step["stack"]:
+        _collect_refs(fr["locals"], todo)
+    _collect_refs(step["locals"], todo)
+    if "returnValue" in step:
+        _collect_refs(step["returnValue"], todo)
+    keep = set()
+    while todo:
+        ref = todo.pop()
+        if ref in keep or ref not in heap:
+            continue
+        keep.add(ref)
+        _collect_refs(heap[ref]["fields"], todo)
+    step["heap"] = {k: v for k, v in heap.items() if k in keep}
+
+
+def _set_current_locals(step: dict, loc: dict):
+    step["locals"] = loc
+    if step["stack"]:
+        step["stack"][-1]["locals"] = loc
+
+
+def _fit_step(step: dict, types: dict, rv_type=None):
     """Shrink ``step`` in place until its JSON fits STEP_BYTE_CAP.
 
-    Returns True if data was dropped. Stages:
-    1. (design) every local, and the return value, becomes its type placeholder;
-    2. the locals are dropped (very many variables);
-    3. the cumulative stdout keeps its longest prefix that fits (only reachable
-       when escapes inflate it, e.g. control characters).
-    Every other field is bounded by MAX_STR_LEN, so stage 3 always succeeds.
+    Returns ``(dropped, size)``; ``size > STEP_BYTE_CAP`` means it could not be
+    made to fit. Stages (design.md, "Step byte cap fallback"):
+    1. empty the locals of every stack frame except the current one (whose
+       locals must keep equalling the step's locals);
+    2. replace each heap object's fields with placeholders;
+    3. replace every local (and the return value) with its placeholder, then
+       empty ``heap`` (no refs are left, so nothing dangles); then drop the
+       locals altogether (very many variables);
+    4. keep the longest prefix of the cumulative stdout that fits.
     """
-    if _json_size(step) <= STEP_BYTE_CAP:
-        return False
-    step["locals"] = {
-        name: _as_placeholder(jv, types.get(name)) for name, jv in step["locals"].items()
-    }
+    size = _json_size(step)
+    if size <= STEP_BYTE_CAP:
+        return False, size
+
+    stack = step["stack"]
+    if len(stack) > 1:
+        for fr in stack[:-1]:
+            fr["locals"] = {}
+        _prune_heap(step)
+        size = _json_size(step)
+        if size <= STEP_BYTE_CAP:
+            return True, size
+
+    heap = step["heap"]
+    if heap:
+        for entry in heap.values():
+            entry["fields"] = {
+                k: _as_placeholder(v, _jv_type_name(v, heap)) for k, v in entry["fields"].items()
+            }
+        _prune_heap(step)
+        size = _json_size(step)
+        if size <= STEP_BYTE_CAP:
+            return True, size
+
+    heap = step["heap"]
+    _set_current_locals(step, {
+        name: _as_placeholder(jv, types.get(name) or _jv_type_name(jv, heap))
+        for name, jv in step["locals"].items()
+    })
     if "returnValue" in step:
-        step["returnValue"] = _as_placeholder(step["returnValue"], rv_type)
-    if _json_size(step) <= STEP_BYTE_CAP:
-        return True
-    step["locals"] = {}
-    if _json_size(step) <= STEP_BYTE_CAP:
-        return True
+        rv = step["returnValue"]
+        step["returnValue"] = _as_placeholder(rv, rv_type or _jv_type_name(rv, heap))
+    step["heap"] = {}
+    size = _json_size(step)
+    if size <= STEP_BYTE_CAP:
+        return True, size
+    _set_current_locals(step, {})
+    size = _json_size(step)
+    if size <= STEP_BYTE_CAP:
+        return True, size
+
     out = step["stdout"]
     lo, hi = 0, len(out)
     while lo < hi:
@@ -329,7 +632,7 @@ def _fit_step(step: dict, types: dict, rv_type=None) -> bool:
         else:
             hi = mid - 1
     step["stdout"] = out[:lo]
-    return True
+    return True, _json_size(step)
 
 
 # -- stdout capture / input stub -------------------------------------------
@@ -477,17 +780,34 @@ def _return_kind(frame, unwinding: bool) -> str:
 _NO_VALUE = object()
 
 
+# Running byte budget for steps: the terminal exception step (at most
+# STEP_BYTE_CAP) and the top-level fields must still fit under TRACE_BYTE_CAP.
+_TRACE_STEP_BUDGET = TRACE_BYTE_CAP - STEP_BYTE_CAP - 2048
+
+
+def _module_frame(line: int, loc: dict) -> dict:
+    return {
+        "functionName": MODULE_FUNCTION_NAME,
+        "frameId": MODULE_FRAME_ID,
+        "line": line,
+        "locals": loc,
+    }
+
+
 class _Tracer:
     def __init__(self, n_lines: int):
         self.n_lines = n_lines
         self.steps: list[dict] = []
         self.truncated = False
         self.limited = False
+        self.limit_message: str | None = None  # set when a byte cap stopped the run
+        self.trace_bytes = 0
         # Per-frame state keyed on id(frame). Each state holds the frame itself,
         # so the id can't be reused while the entry exists. Ids never reach the
         # output, so results stay deterministic.
         self.frames: dict[int, dict] = {}
         self.call_counts: dict[str, int] = {}
+        self.heap_ids = _HeapIds()
         self.writer = _CappedWriter()
         # Latest exception seen, for the terminal exception step.
         self.exc: dict | None = None
@@ -531,6 +851,10 @@ class _Tracer:
         # until it escapes.
         self._arm_monitoring()
         raise StepLimit()
+
+    def _hit_data_limit(self):
+        self.limit_message = DATA_LIMIT_MESSAGE
+        self._hit_limit()
 
     def _arm_monitoring(self):
         mon = _monitoring
@@ -589,20 +913,16 @@ class _Tracer:
 
     def _new_state(self, frame) -> dict:
         name, name_cut = _capped(_exact_str(frame.f_code.co_name))
-        parent = self._parent_state(frame)
-        if parent is None:
+        if self._parent_state(frame) is None:
             frame_id = MODULE_FRAME_ID
-            depth = 0
         else:
             n = self.call_counts.get(name, 0) + 1
             self.call_counts[name] = n
             frame_id = name + "-" + str(n)
-            depth = parent["depth"] + 1
         state = {
             "frame": frame,
             "functionName": name,
             "frameId": frame_id,
-            "depth": depth,
             "unwinding": False,
             "suspended": False,
             "cut": name_cut,
@@ -617,21 +937,77 @@ class _Tracer:
             state = self._new_state(frame)
         return state
 
-    def _record(self, event, state, line, loc, types, cut, rv=_NO_VALUE, rv_type=None):
+    def _capture(self, frame, rv=_NO_VALUE) -> dict:
+        """Snapshot every active user frame, the return value, and the heap.
+
+        The stack is every frame on the ``f_back`` chain that the tracer has
+        state for, outermost first, ending with ``frame``. Values are visited
+        in design order: stack locals (outermost first, the current frame
+        last), the return value, then heap objects' fields.
+        """
+        frames = self.frames
+        chain = []
+        f = frame
+        while f is not None:
+            st = frames.get(id(f))
+            if st is not None and st["frame"] is f:
+                chain.append((f, st))
+            f = f.f_back
+        chain.reverse()
+
+        snap = _Snap(self.heap_ids)
+        stack = []
+        loc: dict = {}
+        types: dict = {}
+        cut = False
+        last = len(chain) - 1
+        for i, (f, st) in enumerate(chain):
+            if i == last:
+                loc, types = _locals_snapshot(f, snap, True)
+                fl = loc
+            else:
+                fl, _ = _locals_snapshot(f, snap, False)
+            stack.append({
+                "functionName": st["functionName"],
+                "frameId": st["frameId"],
+                "line": self._line(f),
+                "locals": fl,
+            })
+            cut = cut or st["cut"]
+        rv_jv = _NO_VALUE if rv is _NO_VALUE else snap.value(rv)
+        heap = snap.finish()
+        return {
+            "locals": loc,
+            "types": types,
+            "rv": rv_jv,
+            "rv_type": None if rv is _NO_VALUE else _type_name(rv),
+            "heap": heap,
+            "stack": stack,
+            "cut": cut or snap.cut,
+        }
+
+    def _record(self, event, frame, state, rv=_NO_VALUE):
+        body = self._capture(frame, rv)
         step = {
             "index": len(self.steps),
-            "line": line,
+            "line": self._line(frame),
             "event": event,
             "functionName": state["functionName"],
             "frameId": state["frameId"],
-            "depth": state["depth"],
-            "locals": loc,
+            "depth": len(body["stack"]) - 1,
+            "locals": body["locals"],
             "stdout": self.writer.getvalue(),
         }
-        if rv is not _NO_VALUE:
-            step["returnValue"] = rv
-        if _fit_step(step, types, rv_type) or cut or state["cut"]:
+        if body["rv"] is not _NO_VALUE:
+            step["returnValue"] = body["rv"]
+        step["heap"] = body["heap"]
+        step["stack"] = body["stack"]
+        dropped, size = _fit_step(step, body["types"], body["rv_type"])
+        if size > STEP_BYTE_CAP or self.trace_bytes + size + 1 > _TRACE_STEP_BUDGET:
+            self._hit_data_limit()
+        if dropped or body["cut"]:
             self.truncated = True
+        self.trace_bytes += size + 1  # +1 for the separating comma
         self.steps.append(step)
 
     # -- events ----------------------------------------------------------
@@ -641,12 +1017,9 @@ class _Tracer:
         if state is not None and state["suspended"]:
             # A generator resuming: same frameId; it may be resumed elsewhere.
             state["suspended"] = False
-            parent = self._parent_state(frame)
-            state["depth"] = 0 if parent is None else parent["depth"] + 1
         else:
             state = self._new_state(frame)
-        loc, types, cut = _locals_snapshot(frame)
-        self._record(EVENT_CALL, state, self._line(frame), loc, types, cut)
+        self._record(EVENT_CALL, frame, state)
         state["call_step"] = self.steps[-1]
         state["closing"] = False
 
@@ -656,8 +1029,7 @@ class _Tracer:
         # Control resumed in this frame, so any exception that was unwinding
         # through it was caught.
         state["unwinding"] = False
-        loc, types, cut = _locals_snapshot(frame)
-        self._record(EVENT_LINE, state, self._line(frame), loc, types, cut)
+        self._record(EVENT_LINE, frame, state)
 
     def _on_return(self, frame, arg):
         state = self._state(frame)
@@ -670,18 +1042,14 @@ class _Tracer:
                 # generator and nothing ran: drop the orphan resume "call".
                 # Some CPython builds (e.g. 3.13.2, Pyodide 0.29) close such a
                 # generator without any trace events; this keeps them equal.
-                self.steps.pop()
+                orphan = self.steps.pop()
+                self.trace_bytes -= _json_size(orphan) + 1
             exc = self.exc
             if exc is not None and exc["frame"] is frame:
                 exc["frame_done"] = True
             return
         self._reserve()
-        loc, types, cut = _locals_snapshot(frame)
-        rv, rv_cut = snapshot(arg)
-        self._record(
-            EVENT_RETURN, state, self._line(frame), loc, types, cut or rv_cut,
-            rv=rv, rv_type=_type_name(arg),
-        )
+        self._record(EVENT_RETURN, frame, state, rv=arg)
         if kind == _YIELD:
             state["suspended"] = True
         else:
@@ -705,7 +1073,6 @@ class _Tracer:
             prev["frame"] = frame
             prev["frame_done"] = False
             return
-        loc, types, cut = _locals_snapshot(frame)
         self.exc = {
             "value": exc_value,
             "frame": frame,
@@ -713,28 +1080,30 @@ class _Tracer:
             "line": self._line(frame),
             "functionName": state["functionName"],
             "frameId": state["frameId"],
-            "depth": state["depth"],
-            "locals": loc,
-            "types": types,
-            "cut": cut or state["cut"],
+            "body": self._capture(frame),
         }
 
     # -- terminal step ---------------------------------------------------
     def error_step(self, run_exc):
-        """``(step, message, was_cut)`` for an uncaught exception."""
+        """``(step, message, was_cut, fits)`` for an uncaught exception."""
         rec = self.exc
         if rec is None or rec["value"] is not run_exc:
             # The trace function never saw it (unlikely). Fall back.
-            line = _last_user_line(run_exc) or 1
+            line = max(1, min(_last_user_line(run_exc) or 1, self.n_lines))
+            loc: dict = {}
             rec = {
-                "line": max(1, min(line, self.n_lines)),
+                "line": line,
                 "functionName": MODULE_FUNCTION_NAME,
                 "frameId": MODULE_FRAME_ID,
-                "depth": 0,
-                "locals": {},
-                "types": {},
-                "cut": False,
+                "body": {
+                    "locals": loc,
+                    "types": {},
+                    "heap": {},
+                    "stack": [_module_frame(line, loc)],
+                    "cut": False,
+                },
             }
+        body = rec["body"]
         type_name, type_cut = _capped(_type_name(run_exc))
         message, msg_cut = _capped(_exception_message(run_exc))
         step = {
@@ -743,13 +1112,16 @@ class _Tracer:
             "event": EVENT_EXCEPTION,
             "functionName": rec["functionName"],
             "frameId": rec["frameId"],
-            "depth": rec["depth"],
-            "locals": rec["locals"],
+            "depth": len(body["stack"]) - 1,
+            "locals": body["locals"],
             "stdout": self.writer.getvalue(),
             "error": {"type": type_name, "message": message},
+            "heap": body["heap"],
+            "stack": body["stack"],
         }
-        cut = _fit_step(step, rec["types"]) or rec["cut"] or type_cut or msg_cut
-        return step, message, cut
+        dropped, size = _fit_step(step, body["types"])
+        cut = dropped or body["cut"] or type_cut or msg_cut
+        return step, message, cut, size <= STEP_BYTE_CAP
 
 
 def _compile_error_result(err, h: str, n_lines: int) -> dict:
@@ -759,25 +1131,29 @@ def _compile_error_result(err, h: str, n_lines: int) -> dict:
         lineno = _syntax_lineno_getter(err)
     if type(lineno) is not int or lineno < 1:
         lineno = 1
+    line = min(lineno, n_lines)
     type_name, type_cut = _capped(_type_name(err))
     message, msg_cut = _capped(_exception_message(err) or "invalid syntax")
+    loc: dict = {}
     step = {
         "index": 0,
-        "line": min(lineno, n_lines),
+        "line": line,
         "event": EVENT_EXCEPTION,
         "functionName": MODULE_FUNCTION_NAME,
         "frameId": MODULE_FRAME_ID,
         "depth": 0,
-        "locals": {},
+        "locals": loc,
         "stdout": "",
         "error": {"type": type_name, "message": message},
+        "heap": {},
+        "stack": [_module_frame(line, loc)],
     }
-    cut = _fit_step(step, {}) or type_cut or msg_cut
+    dropped, _ = _fit_step(step, {})
     return {
         "steps": [step],
         "status": STATUS_ERROR,
         "message": message,
-        "truncated": cut,
+        "truncated": dropped or type_cut or msg_cut,
         "codeHash": h,
     }
 
@@ -823,13 +1199,18 @@ def trace(source: str) -> dict:
 
     if tracer.limited or type(run_exc) is StepLimit:
         status = STATUS_LIMIT
-        message = LIMIT_MESSAGE
+        message = tracer.limit_message or limit_message(len(tracer.steps))
         truncated = True  # the steps past the cap were dropped
     elif run_exc is not None:
-        status = STATUS_ERROR
-        step, message, cut = tracer.error_step(run_exc)
-        tracer.steps.append(step)
-        if cut:
+        step, message, cut, fits = tracer.error_step(run_exc)
+        if fits:
+            status = STATUS_ERROR
+            tracer.steps.append(step)
+            if cut:
+                truncated = True
+        else:
+            status = STATUS_LIMIT
+            message = DATA_LIMIT_MESSAGE
             truncated = True
 
     result = {

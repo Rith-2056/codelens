@@ -25,9 +25,11 @@ import {
   SYSTEM_PROMPT,
   USE_TEMPLATE,
   cacheKey,
+  fitUserMessage,
 } from "./explain.ts";
 import { explainStep } from "../frontend/src/explain/index.ts";
 import loop from "../shared/fixtures/loop.json" with { type: "json" };
+import tree from "../shared/fixtures/tree-height.json" with { type: "json" };
 
 const STEPS = loop.steps;
 // prev: total = 0, curr: total = 3, next line 3.
@@ -426,4 +428,119 @@ test("the handler logs nothing, even on errors with code in them", async () => {
   await noKeyHandler(req(body));
   await noKeyHandler(req("not json"));
   assert.deepEqual(logged, []);
+});
+
+// ---------------------------------------------------------------------------
+// Wave 3: steps with heap and stack (contract 2026-10-24).
+
+/** A recursive call from the tree lesson: heap objects and several frames. */
+function recursiveCallIndex() {
+  const i = tree.steps.findIndex((st, k) => k > 0 && st.event === "call" && st.functionName === "max_depth"
+    && st.stack.filter((f) => f.functionName === "max_depth").length >= 2);
+  assert.ok(i > 0, "tree-height fixture has a recursive call");
+  return i;
+}
+
+function treeBody(extra = {}) {
+  const i = recursiveCallIndex();
+  return { prev: tree.steps[i - 1], curr: tree.steps[i], lang: "en", codeSlice: "", codeHash: tree.codeHash, stepIndex: i, ...extra };
+}
+
+test("accepts steps with heap and stack, and old steps without them", async () => {
+  const body = treeBody();
+  for (const lang of ["en", "es"]) {
+    const res = await post({ ...body, lang });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { text: explainStep(body.prev, body.curr, lang), source: "template" });
+  }
+  const { heap: _h, stack: _s, ...old } = CURR;
+  assert.equal((await post({ curr: old, lang: "en" })).status, 200);
+});
+
+test("rejects malformed heap or stack with 400", async () => {
+  const bad = [
+    { ...CURR, heap: [] },
+    { ...CURR, heap: { o1: { id: "o1", type: "T" } } },
+    { ...CURR, stack: {} },
+    { ...CURR, stack: [{ functionName: "f", frameId: "f1", line: "3", locals: {} }] },
+    { ...CURR, stack: [{ functionName: "f", frameId: "f1", line: 3 }] },
+  ];
+  for (const curr of bad) {
+    const res = await post({ curr, lang: "en" });
+    assert.equal(res.status, 400, JSON.stringify(curr.heap ?? curr.stack));
+  }
+});
+
+test("the user message sends heap and stack (no frame ids), and the prompt explains the tagged forms", () => {
+  const body = treeBody();
+  const msg = buildUserMessage(body, "ref");
+  const data = JSON.parse(msg.slice(msg.indexOf("{"), msg.lastIndexOf("}") + 1));
+  for (const [snap, step] of [[data.previous, body.prev], [data.current, body.curr]]) {
+    assert.deepEqual(snap.heap, step.heap);
+    assert.equal(snap.stack.length, step.stack.length);
+    snap.stack.forEach((f, k) => {
+      assert.equal(f.functionName, step.stack[k].functionName);
+      assert.deepEqual(f.locals, step.stack[k].locals);
+      assert.equal(f.frameId, undefined, "frame ids are not sent");
+    });
+  }
+  for (const phrase of [/__dict/, /__set/, /__deque/, /__ref/, /stack/, /heap/, /Never write the tags/]) {
+    assert.match(SYSTEM_PROMPT, phrase);
+  }
+});
+
+test("payload cap: other stack frames are trimmed first, then the heap; nothing fits means no LLM call", async () => {
+  const base = treeBody();
+  // Give the outer frames heavy locals so each trim level is smaller than the last.
+  const heavy = (step) => ({
+    ...step,
+    stack: step.stack.map((f) => (f.frameId === step.frameId ? f : { ...f, locals: { ...f.locals, pad: "p".repeat(3000) } })),
+  });
+  const body = { ...base, prev: heavy(base.prev), curr: heavy(base.curr) };
+  const bytes = (l) => new TextEncoder().encode(buildUserMessage(body, "ref", l)).byteLength;
+  const sizes = [0, 1, 2, 3].map(bytes);
+  for (let l = 1; l < 4; l++) assert.ok(sizes[l] < sizes[l - 1], `level ${l} is smaller: ${sizes}`);
+
+  const parse = (msg) => JSON.parse(msg.slice(msg.indexOf("{"), msg.lastIndexOf("}") + 1));
+  assert.equal(fitUserMessage(body, "ref", sizes[0]), buildUserMessage(body, "ref", 0));
+
+  const one = parse(fitUserMessage(body, "ref", sizes[1]));
+  const last = one.current.stack.length - 1;
+  assert.ok(one.current.stack.length > 1);
+  one.current.stack.slice(0, last).forEach((f) => assert.equal(f.locals, undefined, "outer frames lose their locals"));
+  assert.deepEqual(one.current.stack[last].locals, body.curr.locals, "the current frame keeps its locals");
+  assert.ok(one.current.heap !== undefined, "heap kept at level 1");
+
+  const two = parse(fitUserMessage(body, "ref", sizes[2]));
+  assert.equal(two.current.stack.length, 1, "only the current frame");
+  assert.equal(two.current.stack[0].functionName, body.curr.functionName);
+  assert.ok(two.current.heap !== undefined, "heap kept at level 2");
+
+  const three = parse(fitUserMessage(body, "ref", sizes[3]));
+  assert.equal(three.current.heap, undefined, "heap dropped last");
+  assert.deepEqual(three.current.locals, body.curr.locals, "locals always kept");
+
+  assert.equal(fitUserMessage(body, "ref", sizes[3] - 1), null);
+
+  // Through the handler: a body under MAX_PAYLOAD_BYTES whose escaped message can't fit.
+  const angle = "<".repeat(12_000);
+  const huge = { ...stepBody(), prev: { ...PREV, stdout: angle }, curr: { ...CURR, stdout: angle + "\n" } };
+  assert.ok(new TextEncoder().encode(JSON.stringify(huge)).byteLength < MAX_PAYLOAD_BYTES);
+  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const res = await h(req(huge));
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).source, "template");
+  assert.equal(llm.calls.length, 0, "the LLM is not called with an oversized prompt");
+});
+
+test("an LLM reply may use numbers from heap fields and stack locals, but never raw tags", async () => {
+  const body = treeBody();
+  const node = body.curr.heap[body.curr.locals.node.__ref];
+  const ok = `max_depth calls itself again on the node with value ${node.fields.val}. The new call hasn't run yet.`;
+  const { h } = llmHandler({ text: ok, stopReason: "end_turn" });
+  assert.deepEqual(await (await h(req(body))).json(), { text: ok, source: "llm" });
+
+  for (const text of [`node is {"__ref": "o2"} now.`, "seen is a __dict with one key.", "The __set__ grew."]) {
+    assert.equal(acceptReply({ text, stopReason: "end_turn" }, body), null, text);
+  }
 });

@@ -6,10 +6,23 @@
 // run yet on line/call steps; on return steps the frame is finishing, and on
 // exception steps curr.line is the line that failed.
 
-import type { TraceStep } from "../types/trace.ts";
+import type { JsonValue, TraceStep } from "../types/trace.ts";
 import { diffStep } from "./diff.ts";
 import { readError, type ErrorInfo } from "./errors.ts";
+import {
+  callerFrame,
+  heapOf,
+  isRecursiveCall,
+  membership,
+  stackOf,
+  stepEvents,
+  type Membership,
+  type StructEvent,
+} from "./events.ts";
+import { sameValue } from "./snapshot.ts";
 import { proseText, viewValue, type ValueView } from "./values.ts";
+
+export type { Membership, StructEvent } from "./events.ts";
 
 export const MODULE = "<module>";
 
@@ -17,6 +30,8 @@ export const MODULE = "<module>";
 const MAX_LISTED = 3;
 const MAX_OUTPUT_LINES = 3;
 const OUTPUT_LINE_MAX = 40;
+/** At most this many structure-level items are described for one line. */
+const MAX_ITEMS = 2;
 
 export type VarView = { name: string; value: ValueView };
 export type ChangeView = { name: string; before: ValueView; after: ValueView };
@@ -33,25 +48,45 @@ export type Changes = {
   output?: OutputView;
 };
 
+/** One thing a line did, when the step is described item by item. */
+export type Item =
+  | StructEvent
+  | { kind: "var"; change: ChangeView }
+  | { kind: "new"; v: VarView }
+  | { kind: "gone"; name: string };
+
+/** The structure-level description of a line: at most MAX_ITEMS items. */
+export type Items = { list: Item[]; more: boolean; output?: OutputView };
+
 /** What just happened between prev and curr. */
 export type Lead =
-  | { kind: "ran"; line: number; changes: Changes }
-  /** `inner`: a call returned into another call of the same function (recursion). */
-  | { kind: "returned"; fn: string; inner: boolean; value?: ValueView; place: string; output?: OutputView }
-  | { kind: "entered"; place: string }
+  /**
+   * `items`: set when a data structure changed or a pointer moved; then the
+   * renderers describe `items` instead of `changes`.
+   * `check`: a membership condition that ran and changed nothing.
+   */
+  | { kind: "ran"; line: number; changes: Changes; items?: Items; check?: Membership }
+  /**
+   * `inner`: a call returned into another call of the same function (recursion).
+   * `now`: variables of the caller that changed when the call finished.
+   */
+  | { kind: "returned"; fn: string; inner: boolean; value?: ValueView; place: string; output?: OutputView; now?: VarView[]; cls: boolean }
+  /** `cls`: the frame is a class body (`class TreeNode:`), not a function. */
+  | { kind: "entered"; place: string; cls: boolean }
   | { kind: "moved"; place: string; back: boolean; output?: OutputView }
   | { kind: "none" };
 
 /** What curr is about to do. */
 export type Tail =
   | { kind: "next"; line: number; again: boolean }
-  | { kind: "fnDone"; fn: string; value?: ValueView }
+  /** `toSelf`: the caller is another call of the same function (recursion). */
+  | { kind: "fnDone"; fn: string; value?: ValueView; toSelf: boolean; cls: boolean }
   | { kind: "end" };
 
 export type Plan =
   | { kind: "start"; line: number }
   | { kind: "resume"; line: number }
-  | { kind: "call"; fn: string; callerLine?: number; params: VarView[]; more: boolean; output?: OutputView }
+  | { kind: "call"; fn: string; callerLine?: number; params: VarView[]; more: boolean; output?: OutputView; recursive: boolean; cls: boolean }
   | { kind: "error"; line: number; place: string; nothingRan: boolean; error: ErrorInfo }
   | { kind: "flow"; lead: Lead; tail: Tail };
 
@@ -74,6 +109,8 @@ function viewOutput(added: string): OutputView | undefined {
 
 function viewChanges(prev: TraceStep, curr: TraceStep): Changes {
   const d = diffStep(prev, curr);
+  const hp = heapOf(prev);
+  const hc = heapOf(curr);
   const changed: ChangeView[] = [];
   const created: VarView[] = [];
   const removed: string[] = [];
@@ -81,12 +118,12 @@ function viewChanges(prev: TraceStep, curr: TraceStep): Changes {
   let more = false;
   for (const c of d.changed) {
     if (budget === 0) { more = true; break; }
-    changed.push({ name: c.name, before: viewValue(c.before), after: viewValue(c.after) });
+    changed.push({ name: c.name, before: viewValue(c.before, hp), after: viewValue(c.after, hc) });
     budget -= 1;
   }
   for (const c of d.created) {
     if (budget === 0) { more = true; break; }
-    created.push({ name: c.name, value: viewValue(c.value) });
+    created.push({ name: c.name, value: viewValue(c.value, hc) });
     budget -= 1;
   }
   for (const c of d.removed) {
@@ -97,7 +134,52 @@ function viewChanges(prev: TraceStep, curr: TraceStep): Changes {
   return { changed, created, removed, more, output: viewOutput(d.output) };
 }
 
-export function planStep(prev: TraceStep | undefined, curr: TraceStep): Plan {
+/**
+ * Item-by-item description when a data structure changed or a pointer moved:
+ * structure events first (in their priority order), then other variables,
+ * at most MAX_ITEMS in all. Undefined when there is no structure event.
+ */
+function viewItems(prev: TraceStep, curr: TraceStep, source: string | undefined): Items | undefined {
+  const { events, covered } = stepEvents(prev, curr, source);
+  if (events.length === 0) return undefined;
+  const d = diffStep(prev, curr);
+  const hp = heapOf(prev);
+  const hc = heapOf(curr);
+  const rest: Item[] = [
+    ...d.changed
+      .filter((c) => !covered.has(c.name))
+      .map((c): Item => ({ kind: "var", change: { name: c.name, before: viewValue(c.before, hp), after: viewValue(c.after, hc) } })),
+    ...d.created.map((c): Item => ({ kind: "new", v: { name: c.name, value: viewValue(c.value, hc) } })),
+    ...d.removed.map((c): Item => ({ kind: "gone", name: c.name })),
+  ];
+  const all: Item[] = [...events, ...rest];
+  return { list: all.slice(0, MAX_ITEMS), more: all.length > MAX_ITEMS, output: viewOutput(d.output) };
+}
+
+/**
+ * The frame named `name` runs a class body: the source has `class name` and
+ * no `def name`. Needs the source; without it, frames read as functions.
+ */
+function isClassBody(name: string, source: string | undefined): boolean {
+  if (source === undefined || !/^[A-Za-z_]\w*$/.test(name)) return false;
+  return new RegExp(`^\\s*class\\s+${name}\\b`, "m").test(source) && !new RegExp(`^\\s*(?:async\\s+)?def\\s+${name}\\b`, "m").test(source);
+}
+
+/** Caller variables that changed when a call finished (from prev.stack's copy of the caller frame). */
+function callerNow(prev: TraceStep, curr: TraceStep): VarView[] | undefined {
+  const before = stackOf(prev).find((f) => f.frameId === curr.frameId);
+  if (before === undefined || before.locals === null || typeof before.locals !== "object") return undefined;
+  const hc = heapOf(curr);
+  const out: VarView[] = [];
+  for (const name of Object.keys(curr.locals)) {
+    const was: JsonValue | undefined = Object.prototype.hasOwnProperty.call(before.locals, name) ? before.locals[name] : undefined;
+    if (was !== undefined && sameValue(was, curr.locals[name])) continue;
+    out.push({ name, value: viewValue(curr.locals[name], hc) });
+  }
+  return out.length > 0 ? out.slice(0, MAX_ITEMS) : undefined;
+}
+
+export function planStep(prev: TraceStep | undefined, curr: TraceStep, source?: string): Plan {
   // Errors first: an exception step (or any step carrying an error).
   if (curr.event === "exception" || curr.error !== undefined) {
     return {
@@ -111,7 +193,8 @@ export function planStep(prev: TraceStep | undefined, curr: TraceStep): Plan {
 
   if (curr.event === "call" && curr.functionName !== MODULE) {
     const names = Object.keys(curr.locals);
-    const params = names.slice(0, MAX_LISTED).map((name) => ({ name, value: viewValue(curr.locals[name]) }));
+    const hc = heapOf(curr);
+    const params = names.slice(0, MAX_LISTED).map((name) => ({ name, value: viewValue(curr.locals[name], hc) }));
     const isCaller = prev !== undefined && prev.event === "line" && prev.depth < curr.depth;
     return {
       kind: "call",
@@ -120,6 +203,8 @@ export function planStep(prev: TraceStep | undefined, curr: TraceStep): Plan {
       params,
       more: names.length > MAX_LISTED,
       output: prev !== undefined ? viewOutput(diffStep(prev, curr).output) : undefined,
+      recursive: isRecursiveCall(prev, curr),
+      cls: isClassBody(curr.functionName, source),
     };
   }
 
@@ -127,7 +212,7 @@ export function planStep(prev: TraceStep | undefined, curr: TraceStep): Plan {
     const blank = Object.keys(curr.locals).length === 0 && curr.stdout === "";
     if (curr.event === "call" || (curr.event === "line" && blank)) return { kind: "start", line: curr.line };
     if (curr.event === "line") return { kind: "resume", line: curr.line };
-    return { kind: "flow", lead: { kind: "none" }, tail: tailFor(curr, { kind: "none" }) };
+    return { kind: "flow", lead: { kind: "none" }, tail: tailFor(curr, { kind: "none" }, source) };
   }
 
   if (curr.event === "call") {
@@ -135,14 +220,25 @@ export function planStep(prev: TraceStep | undefined, curr: TraceStep): Plan {
     return { kind: "resume", line: curr.line };
   }
 
-  const lead = leadFor(prev, curr);
-  return { kind: "flow", lead, tail: tailFor(curr, lead) };
+  const lead = leadFor(prev, curr, source);
+  return { kind: "flow", lead, tail: tailFor(curr, lead, source) };
 }
 
-function leadFor(prev: TraceStep, curr: TraceStep): Lead {
+function leadFor(prev: TraceStep, curr: TraceStep, source: string | undefined): Lead {
   if (prev.frameId === curr.frameId) {
-    if (prev.event === "line") return { kind: "ran", line: prev.line, changes: viewChanges(prev, curr) };
-    if (prev.event === "call" && curr.event === "line") return { kind: "entered", place: curr.functionName };
+    if (prev.event === "line") {
+      const changes = viewChanges(prev, curr);
+      const items = viewItems(prev, curr, source);
+      if (items !== undefined) return { kind: "ran", line: prev.line, changes, items };
+      if (!hasChanges(changes)) {
+        const check = membership(prev, curr, source);
+        if (check !== undefined) return { kind: "ran", line: prev.line, changes, check };
+      }
+      return { kind: "ran", line: prev.line, changes };
+    }
+    if (prev.event === "call" && curr.event === "line") {
+      return { kind: "entered", place: curr.functionName, cls: isClassBody(curr.functionName, source) };
+    }
     return { kind: "none" };
   }
   const output = viewOutput(diffStep(prev, curr).output);
@@ -151,21 +247,25 @@ function leadFor(prev: TraceStep, curr: TraceStep): Lead {
       kind: "returned",
       fn: prev.functionName,
       inner: prev.functionName === curr.functionName,
-      value: prev.returnValue !== undefined ? viewValue(prev.returnValue) : undefined,
+      value: prev.returnValue !== undefined ? viewValue(prev.returnValue, heapOf(prev)) : undefined,
       place: curr.functionName,
       output,
+      now: output === undefined ? callerNow(prev, curr) : undefined,
+      cls: isClassBody(prev.functionName, source),
     };
   }
   return { kind: "moved", place: curr.functionName, back: prev.depth > curr.depth, output };
 }
 
-function tailFor(curr: TraceStep, lead: Lead): Tail {
+function tailFor(curr: TraceStep, lead: Lead, source: string | undefined): Tail {
   if (curr.event === "return") {
     if (curr.functionName === MODULE) return { kind: "end" };
     return {
       kind: "fnDone",
       fn: curr.functionName,
-      value: curr.returnValue !== undefined ? viewValue(curr.returnValue) : undefined,
+      value: curr.returnValue !== undefined ? viewValue(curr.returnValue, heapOf(curr)) : undefined,
+      toSelf: callerFrame(curr)?.functionName === curr.functionName,
+      cls: isClassBody(curr.functionName, source),
     };
   }
   return { kind: "next", line: curr.line, again: lead.kind === "ran" && lead.line === curr.line };

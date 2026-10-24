@@ -8,6 +8,9 @@
 //
 // codeSlice, as the UI builds it: the source lines numbered prev.line and
 // curr.line, with up to 2 lines of context each side, joined with "\n".
+//
+// opts.source (optional): the traced program's full source. It is never sent;
+// it only improves the local template (see explainStep).
 
 import type { TraceStep } from "../types/trace.ts";
 import { explainStep, type Lang } from "./index.ts";
@@ -52,11 +55,11 @@ export async function fetchExplanation(
   curr: TraceStep,
   lang: Lang,
   codeSlice: string,
-  opts?: { codeHash?: string; stepIndex?: number; signal?: AbortSignal },
+  opts?: { codeHash?: string; stepIndex?: number; signal?: AbortSignal; source?: string },
 ): Promise<Explanation> {
   const template = (): Explanation => {
     try {
-      return { text: explainStep(prev, curr, lang), source: "template" };
+      return { text: explainStep(prev, curr, lang, opts?.source), source: "template" };
     } catch {
       return { text: "", source: "template" };
     }
@@ -109,6 +112,9 @@ export async function fetchExplanation(
       opts?.signal?.removeEventListener("abort", onAbort);
     }
     if (controller.signal.aborted || !isExplanation(data)) return template();
+    // The server has no program source, so its template can't explain
+    // membership checks or class bodies; the local template with the source can.
+    if (data.source === "template" && typeof opts?.source === "string") return template();
 
     const result: Explanation = { text: data.text, source: data.source };
     // Only cache LLM answers; a template answer may be a transient fallback.

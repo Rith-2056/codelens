@@ -40,7 +40,7 @@ type StackFrame = { functionName: string; frameId: string; line: number; locals:
 // TraceStep keeps every earlier field; locals stays the current frame's locals.
 // New on every step:
 //   heap: Record<string, HeapObject>;
-//   stack: StackFrame[];   // calling frames, outermost first
+//   stack: StackFrame[];   // all active user frames, outermost first; last = current frame
 ```
 
 How Python values map to snapshot values:
@@ -100,7 +100,7 @@ What this means for consumers:
   the stack locals (outermost first), the current locals, `returnValue`, and
   other heap objects' fields, visited in that order. Objects that refer to
   each other just use refs.
-- **Cap:** at most MAX_HEAP_OBJECTS (60) per step. Further objects become
+- **Cap:** at most MAX_HEAP_OBJECTS (200) per step. Further objects become
   placeholders, and `truncated` is set.
 - **Safety check for student-defined objects:**
   - The class's `__module__`, read from its own `__dict__` mapping, must be
@@ -118,8 +118,8 @@ What this means for consumers:
 For each step, walk `frame.f_back` through user frames that the tracer has
 state for. Emit them outermost first as `{functionName, frameId, line,
 locals}`, with line `f_lineno or 1`, clamped to the program. The current frame
-is not included. Its depth equals `len(stack)`, which matches
-`TraceStep.depth`.
+is the last entry (its locals equal `TraceStep.locals`), so `len(stack)` is the
+number of active user frames and equals `TraceStep.depth + 1`.
 
 ### Caps
 
@@ -129,7 +129,7 @@ is not included. Its depth equals `len(stack)`, which matches
 | MAX_ITEMS | 20 | per container; was 10 |
 | MAX_STR_LEN | 200 | unchanged |
 | MAX_NEST_DEPTH | 4 | inline container nesting |
-| MAX_HEAP_OBJECTS | 60 | per step |
+| MAX_HEAP_OBJECTS | 200 | per step |
 | STDOUT_BYTE_CAP | 4000 | unchanged |
 | STEP_BYTE_CAP | 16000 | now covers `heap` and `stack` |
 | TRACE_BYTE_CAP | 3,000,000 | compact JSON of the whole result |
@@ -340,9 +340,10 @@ Detection works on the data alone:
 | Hash map | any other `__dict` | key \| value table | "added", `old → new`, "removed" |
 | Set | `__set` | chips in snapshot order | "added", "removed" |
 | Queue | `__deque` | strip with "front" and "back" labels | "added at back", "removed from front" (and the reverse) |
-| Array | array of primitives | indexed cells, plus pointer markers | `old → new` per cell. Pointer markers: an int local in the same frame whose name appears inside `<listname>[...]` in the source and whose value is a valid index gets an arrow labeled with its name (`left`, `right`, `i`). On the highlighted line, `name[v ± k]` gets a "used by next line" marker. |
+| Array | array of primitives | indexed cells, plus pointer markers | `old → new` per cell. Pointer markers: an int local in the same frame named `i`, `j`, `k`, `l`, `r`, `lo`, `hi`, `left`, `right`, `mid`, `start`, `end`, `slow`, or `fast` whose value is a valid index of the array gets an arrow under that cell, labeled with its name. |
+| Grid | an array whose items are all arrays of primitives (a 2D list, e.g. a DP table) | table of cells with row and column indexes | `old → new` per cell |
 | Tree | heap objects with `left` and `right` fields that are `null` or refs to heap objects of the same `type` | layered SVG tree; label = `val` field, else the first primitive field | nodes referenced by the current locals or any stack frame get a text badge (`node in max_depth`) |
-| Call stack | `stack` is non-empty | frames outermost first with their locals (refs as `describeShort`), then the current frame marked "running" | "called", "returned <value>" |
+| Call stack | always (the module frame is always there) | one card per frame, outermost at the bottom, current frame on top and highlighted, each with its locals (refs as `describeShort`) | "called", "returned <value>" |
 | Fallback | anything else (nested arrays, heap objects that aren't trees, placeholders) | type name plus items or fields as a list | `old → new` |
 
 Accessibility:
@@ -401,7 +402,7 @@ Accessibility:
 - set order identical across `PYTHONHASHSEED` values (subprocess runs)
 - hostile classes (`__getattribute__`, `__eq__`, `__hash__`, a `__dict__`
   property, `__slots__`) are never invoked and become placeholders
-- stack order and the excluded current frame
+- stack order, with the current frame last
 - each cap and its `truncated` flag
 - `while True` limit under 2 s
 

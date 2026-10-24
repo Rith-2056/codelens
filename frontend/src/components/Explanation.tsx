@@ -54,6 +54,7 @@ export default function Explanation({ steps, index, lang, code, codeHash, traceI
         codeHash,
         stepIndex: index,
         signal: controller.signal,
+        source: code,
       }).then(
         (value) => {
           // Only swap if the student is still on this trace, step and language.
@@ -72,7 +73,7 @@ export default function Explanation({ steps, index, lang, code, codeHash, traceI
 
   if (!curr) return null;
   const current = fetched && fetched.key === key ? fetched.value : null;
-  const text = current?.text ?? explainStep(prev, curr, lang);
+  const text = current?.text ?? explainStep(prev, curr, lang, code);
   const source = current?.source ?? "template";
 
   return (

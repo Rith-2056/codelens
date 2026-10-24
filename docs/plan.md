@@ -123,7 +123,7 @@ type TraceStep = {
   returnValue?: JsonValue;
   error?: { type: string; message: string };
   heap: Record<string, HeapObject>;
-  stack: StackFrame[];       // calling frames, outermost first
+  stack: StackFrame[];       // all active user frames, outermost first; last = current frame
 };
 
 type TraceResult = {

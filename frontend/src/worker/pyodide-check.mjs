@@ -64,11 +64,57 @@ function firstDiff(a, b) {
   return `top-level: got ${JSON.stringify({ ...a, steps: undefined })} expected ${JSON.stringify({ ...b, steps: undefined })}`;
 }
 
+// Expected output of each Level 2 lesson (.kiro/specs/ds-visualizers/design.md).
+const level2Output = {
+  "pair-sum": "[1, 2]\n",
+  "any-repeats": "True\n",
+  "sorted-pair": "[4, 6]\n",
+  "network-hops": "{'A': 0, 'B': 1, 'C': 1, 'D': 2, 'E': 3}\n",
+  "tree-height": "4\n",
+  stairs: "13\n",
+};
+// Every lesson must trace in under 1 s in Pyodide (Requirement 7.4).
+const LESSON_MS = 1000;
+
+check("all nine lessons are listed", Object.keys(lessons).length === 9, Object.keys(lessons).join(", "));
 for (const [name, source] of Object.entries(lessons)) {
-  const got = JSON.parse(traceJson(source));
+  const t = performance.now();
+  const text = traceJson(source);
+  const ms = performance.now() - t;
+  const got = JSON.parse(text);
   const want = JSON.parse(readFileSync(join(fixturesDir, `${name}.json`), "utf8"));
   const same = isDeepStrictEqual(got, want);
-  check(`${name} lesson equals shared/fixtures/${name}.json`, same, same ? `(${got.steps.length} steps)` : firstDiff(got, want));
+  check(
+    `${name} lesson equals shared/fixtures/${name}.json`,
+    same,
+    same ? `(${got.steps.length} steps, ${ms.toFixed(0)} ms, ${(text.length / 1024).toFixed(0)} KiB)` : firstDiff(got, want),
+  );
+  check(`${name} traces in under ${LESSON_MS} ms`, ms < LESSON_MS, `${ms.toFixed(1)} ms`);
+  if (name in level2Output) {
+    const out = got.steps.at(-1)?.stdout;
+    check(`${name} prints ${JSON.stringify(level2Output[name])}`, got.status === "ok" && out === level2Output[name], `got ${JSON.stringify(out)}`);
+  }
+}
+
+// Every ref in every step resolves, and the stack ends with the current frame.
+function shapeProblems(r) {
+  const problems = [];
+  const refs = (v, out) => {
+    if (Array.isArray(v)) v.forEach((x) => refs(x, out));
+    else if (v && typeof v === "object") {
+      if (typeof v.__ref === "string") out.push(v.__ref);
+      Object.values(v).forEach((x) => refs(x, out));
+    }
+    return out;
+  };
+  for (const s of r.steps) {
+    const found = refs([s.locals, s.returnValue ?? null, s.stack.map((f) => f.locals), Object.values(s.heap).map((o) => o.fields)], []);
+    for (const id of found) if (!s.heap[id] || s.heap[id].id !== id) problems.push(`step ${s.index}: ref ${id} does not resolve`);
+    if (s.stack.length !== s.depth + 1) problems.push(`step ${s.index}: stack length ${s.stack.length} vs depth ${s.depth}`);
+    const top = s.stack.at(-1);
+    if (!top || top.frameId !== s.frameId || !isDeepStrictEqual(top.locals, s.locals)) problems.push(`step ${s.index}: last frame is not the current frame`);
+  }
+  return problems;
 }
 
 const limitCases = {
@@ -82,6 +128,32 @@ for (const [name, source] of Object.entries(limitCases)) {
   const r = JSON.parse(traceJson(source));
   const ms = performance.now() - t;
   check(`${name} -> limit`, r.status === "limit" && ms < 2000, `status=${r.status} steps=${r.steps.length} ${ms.toFixed(0)} ms`);
+}
+
+// Timing against the worker's 3 s timeout (TRACE_TIMEOUT_MS in traceClient.ts).
+const WORKER_TIMEOUT_MS = 3000;
+const timingCases = {
+  // design.md "Risks": a 2000-step loop that mutates a 20-item list and dict.
+  "2000-step loop mutating a 20-item list and dict":
+    "nums = list(range(20))\nd = {i: i for i in range(20)}\ni = 0\nwhile True:\n    nums[i % 20] += 1\n    d[i % 20] = nums[i % 20]\n    i += 1\n",
+  "2000-step loop over a 30-node tree":
+    "class N:\n    def __init__(self, v, l=None, r=None):\n        self.v = v\n        self.l = l\n        self.r = r\n\n" +
+    "def build(lo, hi):\n    if lo > hi:\n        return None\n    mid = (lo + hi) // 2\n    return N(mid, build(lo, mid - 1), build(mid + 1, hi))\n\n" +
+    "root = build(1, 30)\nwhile True:\n    root.v += 1\n",
+  "runaway recursion": "def f(n):\n    return f(n + 1)\n\nf(0)\n",
+  "trace byte cap": "rows = ['x' * 200] * 20\nwhile True:\n    pass\n",
+};
+for (const [name, source] of Object.entries(timingCases)) {
+  const t = performance.now();
+  const text = traceJson(source);
+  const ms = performance.now() - t;
+  const r = JSON.parse(text);
+  const problems = shapeProblems(r);
+  check(
+    `${name} -> limit within ${WORKER_TIMEOUT_MS} ms`,
+    r.status === "limit" && ms < WORKER_TIMEOUT_MS && problems.length === 0,
+    `steps=${r.steps.length} ${ms.toFixed(0)} ms ${(text.length / 1e6).toFixed(2)} MB ${JSON.stringify(r.message)}${problems.length ? " " + problems[0] : ""}`,
+  );
 }
 
 const misc = [
@@ -136,6 +208,15 @@ const corpus = [
   "s = 'abc' * 1000\nprint(len(s))\n",
   "for i in range(400):\n    print(i)\n",
   "def h():\n    raise ValueError('bad')\n\ntry:\n    h()\nexcept ValueError as e:\n    msg = str(e)\nprint(msg)\n",
+  // 2026-10-24 value forms. Pyodide's string hash seed differs from CPython's,
+  // so set order here also checks the hash-seed-independent sort.
+  "s = {'pear', 'fig', 'apple', 'kiwi'}\nt = frozenset({('b', 1), ('a', 2), (None, 0)})\nm = {3, 'x', None, False, 2.5}\n",
+  "from collections import deque\nq = deque(['a', 'b'])\nq.appendleft('z')\nx = q.pop()\nd = {4: 0, (1, 2): 'pair', None: [1, {'k': {2, 1}}]}\n",
+  "a = []\na.append(a)\nd = {}\nd['me'] = d\ndeep = [[[[[1]]]]]\nbig = list(range(25))\n",
+  "class P:\n    pass\n\na = P()\nb = P()\na.o = b\nb.o = a\nc = a\nitems = [a, b]\n",
+  "class G:\n    def __getattr__(self, n):\n        return 1\n\nclass S:\n    __slots__ = ('x',)\n\nclass L(list):\n    pass\n\ng, s, l = G(), S(), L()\n",
+  "def fib(n):\n    if n < 2:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\nprint(fib(6))\n",
+  ...Object.values(timingCases),
 ];
 const cpython = process.env.CPYTHON ?? join(repo, ".venv/bin/python");
 let cpyResults = null;

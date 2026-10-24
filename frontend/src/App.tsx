@@ -1,14 +1,20 @@
-import { useEffect, useReducer, useRef, useState } from "react";
-import CodeView from "./components/CodeView";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import CallStack from "./components/CallStack";
+import CodeView, { sourceLines } from "./components/CodeView";
+import DataStructures from "./components/DataStructures";
 import Editor from "./components/Editor";
 import Explanation from "./components/Explanation";
+import JumpToChange from "./components/JumpToChange";
 import LessonPicker from "./components/LessonPicker";
 import Narrator from "./components/Narrator";
 import RunStatus, { statusMessage } from "./components/RunStatus";
+import Scrubber from "./components/Scrubber";
 import Timeline from "./components/Timeline";
 import Variables from "./components/Variables";
 import { canVisualize, initialRunState, runReducer, traceOf } from "./components/runState";
+import { variableNames } from "./components/jump";
 import { previousInFrame } from "./components/stepInfo";
+import { structuresFor, topStructureChange } from "./components/structures";
 import { explainStep, type Lang } from "./explain";
 import { lessonById, lessons, type LessonId } from "./lessons";
 import { onTracerStatus, preloadTracer, runTrace } from "./worker/traceClient";
@@ -20,6 +26,8 @@ export default function App() {
   const [state, dispatch] = useReducer(runReducer, "loop", initialRunState);
   const [mode, setMode] = useState<Mode>("step");
   const [lang, setLang] = useState<Lang>("en");
+  // True while the step scrubber is moving, so the narrator waits for it to settle.
+  const [scrubbing, setScrubbing] = useState(false);
   const runCounter = useRef(0);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const editToggleRef = useRef<HTMLButtonElement>(null);
@@ -96,9 +104,25 @@ export default function App() {
     }
   }
 
+  function goToStep(i: number, fromScrubber = false) {
+    setScrubbing(fromScrubber);
+    dispatch({ type: "setStep", index: i });
+  }
+
+  // Only the shown step is diffed, so long traces (2000 steps) stay fast.
+  const prevStep = useMemo(() => previousInFrame(steps, index), [steps, index]);
+  const structures = useMemo(
+    () => (step ? structuresFor(step.locals, prevStep?.locals) : []),
+    [step, prevStep],
+  );
+  const names = useMemo(() => variableNames(steps), [steps]);
+  const heap = step?.heap ?? {};
+  const lineText = step && traced ? (sourceLines(traced.code)[step.line - 1] ?? "") : "";
+
   const status = statusMessage(state);
   const errorIndex = state.phase.name === "error" ? steps.length - 1 : -1;
-  const template = step ? explainStep(index > 0 ? steps[index - 1] : undefined, step, lang) : undefined;
+  const template =
+    step && traced ? explainStep(index > 0 ? steps[index - 1] : undefined, step, lang, traced.code) : undefined;
 
   return (
     <div className="app">
@@ -109,7 +133,7 @@ export default function App() {
       <main className="layout">
         <section className="panel" aria-labelledby="code-heading">
           <h2 id="code-heading">{edited ? `Your code (from the ${lesson.short} lesson)` : lesson.title}</h2>
-          <LessonPicker lessons={lessons} current={state.lessonId} onPick={pickLesson} />
+          <LessonPicker lessons={lessons} current={state.lessonId} onPick={pickLesson} lang={lang} />
 
           <div className="toolbar">
             {traced && steps.length > 0 && (
@@ -153,10 +177,19 @@ export default function App() {
             traced && (
               <>
                 <CodeView source={traced.code} step={step} />
-                <Timeline
+                <Timeline index={index} total={steps.length} onIndexChange={(i) => goToStep(i)} />
+                <Scrubber
                   index={index}
                   total={steps.length}
-                  onIndexChange={(i) => dispatch({ type: "setStep", index: i })}
+                  line={step?.line ?? 1}
+                  onScrub={(i) => goToStep(i, true)}
+                />
+                <JumpToChange
+                  key={traced.traceId}
+                  steps={steps}
+                  index={index}
+                  names={names}
+                  onJump={(i) => goToStep(i)}
                 />
                 {errorIndex >= 0 && (
                   // Stays mounted (aria-disabled at the error) so focus is not lost.
@@ -164,7 +197,7 @@ export default function App() {
                     type="button"
                     className="tool-button jump-button"
                     aria-disabled={index === errorIndex}
-                    onClick={() => dispatch({ type: "setStep", index: errorIndex })}
+                    onClick={() => goToStep(errorIndex)}
                   >
                     {index === errorIndex ? "At the error" : "Go to the error"} (step {errorIndex + 1})
                   </button>
@@ -172,7 +205,7 @@ export default function App() {
                 {traced.trace.truncated && (
                   <p className="hint">Some values or output were too long, so CodeLens shortened them.</p>
                 )}
-                <p className="hint">Tip: use the Left and Right arrow keys to step.</p>
+                <p className="hint">Tip: use the Left and Right arrow keys to step, or the slider for long runs.</p>
               </>
             )
           )}
@@ -183,7 +216,9 @@ export default function App() {
           {!showEditor && traced && step ? (
             <>
               <p className="hint">Values right now, before the highlighted line runs.</p>
-              <Variables current={step.locals} previous={previousInFrame(steps, index)?.locals} />
+              <Variables current={step.locals} previous={prevStep?.locals} heap={heap} prevHeap={prevStep?.heap ?? {}} />
+              <DataStructures items={structures} locals={step.locals} heap={heap} line={lineText} />
+              <CallStack step={step} />
 
               <h3 className="subheading">Output so far</h3>
               {step.stdout ? (
@@ -230,6 +265,8 @@ export default function App() {
         total={steps.length}
         explanation={template}
         lang={lang}
+        structureNote={showEditor ? undefined : topStructureChange(structures, heap)}
+        delayMs={scrubbing ? 600 : 0}
       />
     </div>
   );

@@ -1,14 +1,13 @@
 """Regenerate the precomputed lesson traces in shared/fixtures/.
 
 Usage (from the repo root):
-    .venv/bin/python frontend/src/py/gen_fixtures.py          # write branch + function
-    .venv/bin/python frontend/src/py/gen_fixtures.py --check  # verify all three, write nothing
+    .venv/bin/python frontend/src/py/gen_fixtures.py          # write every fixture but loop
+    .venv/bin/python frontend/src/py/gen_fixtures.py --check  # verify all nine, write nothing
     .venv/bin/python frontend/src/py/gen_fixtures.py --all    # rewrite every fixture
 
 The lesson sources below must stay byte-for-byte identical to the strings in
 frontend/src/lessons.ts (trailing newline included), or the codeHash will not
-match. By default loop.json is hand-formatted and only checked, never
-rewritten. --all (run by the contract hooks when trace.ts changes) rewrites
+match. The default mode only checks loop.json, never rewriting it. --all (run by the contract hooks when trace.ts changes) rewrites
 every fixture, loop.json included, but only after checking that every trace
 has the fields trace.ts requires; if any is missing it writes nothing.
 """
@@ -46,9 +45,103 @@ LESSONS = {
         "total = add(2, 3)\n"
         "print(total)\n"
     ),
+    # Level 2: interview patterns. Sources from
+    # .kiro/specs/ds-visualizers/design.md, byte for byte.
+    "pair-sum": (
+        "nums = [4, 9, 2, 7]\n"
+        "target = 11\n"
+        "seen = {}\n"
+        "answer = None\n"
+        "for i, n in enumerate(nums):\n"
+        "    need = target - n\n"
+        "    if need in seen:\n"
+        "        answer = [seen[need], i]\n"
+        "        break\n"
+        "    seen[n] = i\n"
+        "print(answer)\n"
+    ),
+    "any-repeats": (
+        "nums = [5, 1, 8, 1, 3]\n"
+        "seen = set()\n"
+        "has_repeat = False\n"
+        "for n in nums:\n"
+        "    if n in seen:\n"
+        "        has_repeat = True\n"
+        "        break\n"
+        "    seen.add(n)\n"
+        "print(has_repeat)\n"
+    ),
+    "sorted-pair": (
+        "nums = [1, 3, 4, 6, 8, 11]\n"
+        "target = 10\n"
+        "left = 0\n"
+        "right = len(nums) - 1\n"
+        "pair = None\n"
+        "while left < right:\n"
+        "    total = nums[left] + nums[right]\n"
+        "    if total == target:\n"
+        "        pair = [nums[left], nums[right]]\n"
+        "        break\n"
+        "    elif total < target:\n"
+        "        left += 1\n"
+        "    else:\n"
+        "        right -= 1\n"
+        "print(pair)\n"
+    ),
+    "network-hops": (
+        "from collections import deque\n"
+        "\n"
+        "graph = {\n"
+        "    \"A\": [\"B\", \"C\"],\n"
+        "    \"B\": [\"A\", \"D\"],\n"
+        "    \"C\": [\"A\", \"D\"],\n"
+        "    \"D\": [\"B\", \"C\", \"E\"],\n"
+        "    \"E\": [\"D\"],\n"
+        "}\n"
+        "visited = {\"A\"}\n"
+        "queue = deque([\"A\"])\n"
+        "hops = {\"A\": 0}\n"
+        "while queue:\n"
+        "    person = queue.popleft()\n"
+        "    for friend in graph[person]:\n"
+        "        if friend not in visited:\n"
+        "            visited.add(friend)\n"
+        "            hops[friend] = hops[person] + 1\n"
+        "            queue.append(friend)\n"
+        "print(hops)\n"
+    ),
+    "tree-height": (
+        "class TreeNode:\n"
+        "    def __init__(self, val, left=None, right=None):\n"
+        "        self.val = val\n"
+        "        self.left = left\n"
+        "        self.right = right\n"
+        "\n"
+        "\n"
+        "def max_depth(node):\n"
+        "    if node is None:\n"
+        "        return 0\n"
+        "    left = max_depth(node.left)\n"
+        "    right = max_depth(node.right)\n"
+        "    return 1 + max(left, right)\n"
+        "\n"
+        "\n"
+        "root = TreeNode(1, TreeNode(2, TreeNode(4)), TreeNode(3, None, TreeNode(5, TreeNode(6))))\n"
+        "print(max_depth(root))\n"
+    ),
+    "stairs": (
+        "n = 6\n"
+        "ways = [0] * (n + 1)\n"
+        "ways[0] = 1\n"
+        "ways[1] = 1\n"
+        "for i in range(2, n + 1):\n"
+        "    ways[i] = ways[i - 1] + ways[i - 2]\n"
+        "print(ways[n])\n"
+    ),
 }
 
-GENERATED = ("branch", "function")  # loop.json is never rewritten
+# Written by the default mode; loop.json is only rewritten by --all.
+GENERATED = tuple(name for name in LESSONS if name != "loop")
 
 
 def render(result: dict) -> str:

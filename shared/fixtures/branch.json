@@ -11,7 +11,16 @@
       "frameId": "module",
       "depth": 0,
       "locals": {},
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": [
+        {
+          "functionName": "<module>",
+          "frameId": "module",
+          "line": 1,
+          "locals": {}
+        }
+      ]
     },
     {
       "index": 1,
@@ -21,7 +30,16 @@
       "frameId": "module",
       "depth": 0,
       "locals": {},
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": [
+        {
+          "functionName": "<module>",
+          "frameId": "module",
+          "line": 1,
+          "locals": {}
+        }
+      ]
     },
     {
       "index": 2,
@@ -33,7 +51,18 @@
       "locals": {
         "temperature": 30
       },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": [
+        {
+          "functionName": "<module>",
+          "frameId": "module",
+          "line": 2,
+          "locals": {
+            "temperature": 30
+          }
+        }
+      ]
     },
     {
       "index": 3,
@@ -45,7 +74,18 @@
       "locals": {
         "temperature": 30
       },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": [
+        {
+          "functionName": "<module>",
+          "frameId": "module",
+          "line": 3,
+          "locals": {
+            "temperature": 30
+          }
+        }
+      ]
     },
     {
       "index": 4,
@@ -58,7 +98,19 @@
         "temperature": 30,
         "advice": "Wear a T-shirt"
       },
-      "stdout": ""
+      "stdout": "",
+      "heap": {},
+      "stack": [
+        {
+          "functionName": "<module>",
+          "frameId": "module",
+          "line": 6,
+          "locals": {
+            "temperature": 30,
+            "advice": "Wear a T-shirt"
+          }
+        }
+      ]
     },
     {
       "index": 5,
@@ -72,7 +124,19 @@
         "advice": "Wear a T-shirt"
       },
       "stdout": "Wear a T-shirt\n",
-      "returnValue": null
+      "returnValue": null,
+      "heap": {},
+      "stack": [
+        {
+          "functionName": "<module>",
+          "frameId": "module",
+          "line": 6,
+          "locals": {
+            "temperature": 30,
+            "advice": "Wear a T-shirt"
+          }
+        }
+      ]
     }
   ]
 }

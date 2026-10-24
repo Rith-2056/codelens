@@ -1,4 +1,4 @@
-"""Example tests for the tracer (tasks 1-3 of .kiro/specs/trace-engine).
+"""Example tests for the tracer (trace-engine tasks 1-3, ds-visualizers task 2).
 
 Hostile-loop programs that a regression could turn into a hang run in a
 subprocess with a timeout, so a bug fails the suite instead of freezing it.
@@ -7,16 +7,26 @@ subprocess with a timeout, so a bug fails the suite instead of freezing it.
 import builtins
 import json
 import math
+import os
 import subprocess
 import sys
 import textwrap
 import time
+from collections import OrderedDict, defaultdict, deque
 from pathlib import Path
 
 import pytest
 
 import tracer
-from tracer import MAX_ITEMS, MAX_STEPS, MAX_STR_LEN, STDOUT_BYTE_CAP, STEP_BYTE_CAP
+from tracer import (
+    MAX_HEAP_OBJECTS,
+    MAX_ITEMS,
+    MAX_NEST_DEPTH,
+    MAX_STEPS,
+    MAX_STR_LEN,
+    STDOUT_BYTE_CAP,
+    STEP_BYTE_CAP,
+)
 
 FIXTURES = Path(__file__).resolve().parent.parent / "shared" / "fixtures"
 PY_DIR = Path(__file__).resolve().parent.parent / "frontend" / "src" / "py"
@@ -62,8 +72,13 @@ def boom(*args, **kwargs):
 # --- scaffold / contract helpers ---------------------------------------------
 
 
-def test_max_steps_is_the_loop_guard():
-    assert tracer.MAX_STEPS == 300
+def test_caps_match_the_design():
+    assert tracer.MAX_STEPS == 2000
+    assert tracer.MAX_ITEMS == 20
+    assert tracer.MAX_NEST_DEPTH == 4
+    assert tracer.MAX_HEAP_OBJECTS == 200
+    assert tracer.STEP_BYTE_CAP == 16000
+    assert tracer.TRACE_BYTE_CAP == 3_000_000
 
 
 def test_code_hash_is_stable_and_sha256_hex():
@@ -169,30 +184,51 @@ class Plain:
         # Over-length containers become placeholders with their length.
         (list(range(MAX_ITEMS + 1)), {"__type__": "list", "__len__": MAX_ITEMS + 1}, True),
         (tuple(range(MAX_ITEMS + 5)), {"__type__": "tuple", "__len__": MAX_ITEMS + 5}, True),
-        # Nested containers, big numbers and objects inside a list.
-        ([[1]], {"__type__": "list"}, False),
-        ((1, (2,)), {"__type__": "tuple"}, False),
-        ([2**60], {"__type__": "list"}, False),
-        ([math.nan], {"__type__": "list"}, False),
-        ([Plain()], {"__type__": "list"}, False),
-        # Dicts.
-        ({}, {}, False),
-        ({"a": 1, "b": "two", "c": None}, {"a": 1, "b": "two", "c": None}, False),
-        ({"a": "z" * 300}, {"a": "z" * MAX_STR_LEN}, True),
+        # Nested containers are written inline; big numbers and objects
+        # inside a container become placeholders in place.
+        ([[1]], [[1]], False),
+        ((1, (2,)), [1, [2]], False),
+        ([2**60], [{"__type__": "int"}], False),
+        ([math.nan], [{"__type__": "float"}], False),
+        ([Plain()], [{"__type__": "Plain"}], False),  # not defined in __main__
+        ([[], [[]]], [[], [[]]], False),
+        # Dicts: always tagged, insertion order, any shown key kept.
+        ({}, {"__dict": []}, False),
+        ({"a": 1, "b": "two", "c": None}, {"__dict": [["a", 1], ["b", "two"], ["c", None]]}, False),
+        ({"b": 1, "a": 2}, {"__dict": [["b", 1], ["a", 2]]}, False),
+        ({"a": "z" * 300}, {"__dict": [["a", "z" * MAX_STR_LEN]]}, True),
         ({str(i): i for i in range(MAX_ITEMS + 1)}, {"__type__": "dict", "__len__": MAX_ITEMS + 1}, True),
-        ({"__type__": "int"}, {"__type__": "dict"}, False),
-        ({1: 2}, {"__type__": "dict"}, False),
-        ({"a": [1]}, {"__type__": "dict"}, False),
-        ({"k" * (MAX_STR_LEN + 1): 1}, {"__type__": "dict", "__len__": 1}, True),
+        ({"__type__": "int"}, {"__dict": [["__type__", "int"]]}, False),
+        ({4: 0, 9: 1}, {"__dict": [[4, 0], [9, 1]]}, False),
+        ({1.5: True, None: 0, False: "f"}, {"__dict": [[1.5, True], [None, 0], [False, "f"]]}, False),
+        ({(1, 2): "t"}, {"__dict": [[[1, 2], "t"]]}, False),
+        ({"a": [1]}, {"__dict": [["a", [1]]]}, False),
+        ({"A": ["B", "C"], "B": ["A"]}, {"__dict": [["A", ["B", "C"]], ["B", ["A"]]]}, False),
+        ({"k" * (MAX_STR_LEN + 1): 1}, {"__dict": [["k" * MAX_STR_LEN, 1]]}, True),
+        ({Plain: 1}, {"__dict": [[{"__type__": "type"}, 1]]}, False),
+        # Sets: tagged and sorted (None < bool < number < str < tuple).
+        (set(), {"__set": []}, False),
+        ({3, 1, 2}, {"__set": [1, 2, 3]}, False),
+        (frozenset({"b", "a"}), {"__set": ["a", "b"]}, False),
+        ({"a", 2.5, None, True, 3, (0, "z")}, {"__set": [None, True, 2.5, 3, "a", [0, "z"]]}, False),
+        ({(2, 1), (1, 2), (1,)}, {"__set": [[1], [1, 2], [2, 1]]}, False),
+        (set(range(MAX_ITEMS + 1)), {"__type__": "set", "__len__": MAX_ITEMS + 1}, True),
+        ({frozenset({1})}, {"__set": [{"__set": [1]}]}, False),  # not sortable: iteration order
+        # Deques: tagged, front first.
+        (deque(), {"__deque": []}, False),
+        (deque(["A", "B"]), {"__deque": ["A", "B"]}, False),
+        (deque(range(MAX_ITEMS + 2)), {"__type__": "deque", "__len__": MAX_ITEMS + 2}, True),
         # Anything else: type-only placeholder.
         (len, {"__type__": "builtin_function_or_method"}, False),
         (boom, {"__type__": "function"}, False),
         (sys, {"__type__": "module"}, False),
         (Plain, {"__type__": "type"}, False),
         (Plain(), {"__type__": "Plain"}, False),
-        ({1, 2}, {"__type__": "set"}, False),
         (b"abc", {"__type__": "bytes"}, False),
         (range(3), {"__type__": "range"}, False),
+        (OrderedDict(a=1), {"__type__": "OrderedDict"}, False),
+        (defaultdict(int), {"__type__": "defaultdict"}, False),
+        (ValueError("x"), {"__type__": "ValueError"}, False),
     ],
 )
 def test_snapshot_table(value, expected, cut):
@@ -206,8 +242,8 @@ def test_snapshot_table(value, expected, cut):
 def test_snapshot_subclasses_never_qualify_and_methods_never_run():
     assert tracer.snapshot(HostileInt(5)) == ({"__type__": "HostileInt"}, False)
     assert tracer.snapshot(HostileStr("hi")) == ({"__type__": "HostileStr"}, False)
-    assert tracer.snapshot([HostileInt(5)]) == ({"__type__": "list"}, False)
-    assert tracer.snapshot({"k": HostileStr("v")}) == ({"__type__": "dict"}, False)
+    assert tracer.snapshot([HostileInt(5)]) == ([{"__type__": "HostileInt"}], False)
+    assert tracer.snapshot({"k": HostileStr("v")}) == ({"__dict": [["k", {"__type__": "HostileStr"}]]}, False)
     # A metaclass that overrides __eq__ / __hash__ / __getattribute__ can't
     # intercept the type checks or the type name.
     assert tracer.snapshot(HostileObject()) == ({"__type__": "HostileObject"}, False)
@@ -226,15 +262,17 @@ def test_snapshot_dict_never_hashes_or_compares_student_keys():
             raise AssertionError("student __eq__ called")
 
     value = {HostileKey(): 1, "a": 2}
+    as_set = {HostileKey()}
     calls.clear()
-    assert tracer.snapshot(value) == ({"__type__": "dict"}, False)
+    assert tracer.snapshot(value) == ({"__dict": [[{"__type__": "HostileKey"}, 1], ["a", 2]]}, False)
+    assert tracer.snapshot(as_set) == ({"__set": [{"__type__": "HostileKey"}]}, False)
     assert calls == []
     # A str-subclass key is not an exact str either.
     class KeyStr(str):
         __hash__ = str.__hash__  # needed to build the dict below
         __eq__ = __ne__ = __repr__ = __len__ = startswith = boom
 
-    assert tracer.snapshot({KeyStr("a"): 1, "b": 2}) == ({"__type__": "dict"}, False)
+    assert tracer.snapshot({KeyStr("a"): 1, "b": 2}) == ({"__dict": [[{"__type__": "KeyStr"}, 1], ["b", 2]]}, False)
 
 
 def test_snapshot_handles_huge_ints_quickly():
@@ -536,8 +574,8 @@ def test_infinite_loop_ends_with_limit_quickly():
     assert time.perf_counter() - start < 2
     assert result["status"] == "limit"
     assert result["truncated"] is True
-    assert result["message"] == tracer.LIMIT_MESSAGE
     assert len(result["steps"]) == MAX_STEPS - 1
+    assert result["message"] == f"Stopped after {MAX_STEPS - 1} steps. Is there a loop that never ends?"
 
 
 def test_except_exception_cannot_swallow_the_limit():
@@ -560,7 +598,7 @@ def test_runaway_recursion_hits_the_step_limit():
 
 def test_error_step_always_fits_within_max_steps():
     seen_full = False
-    for n in range(135, 155):
+    for n in range(990, 1005):
         result = run(f"for i in range({n}):\n    pass\n1 / 0\n")
         assert len(result["steps"]) <= MAX_STEPS
         if result["status"] == "error":
@@ -645,6 +683,8 @@ def test_syntax_error_gives_exactly_one_step():
             "locals": {},
             "stdout": "",
             "error": {"type": "SyntaxError", "message": "'(' was never closed"},
+            "heap": {},
+            "stack": [{"functionName": "<module>", "frameId": "module", "line": 2, "locals": {}}],
         }
     ]
     assert result["message"] == "'(' was never closed"
@@ -871,7 +911,7 @@ def test_generator_loop_source_matches_loop_lesson():
     assert gen_fixtures.LESSONS["loop"] == LOOP_LESSON
 
 
-@pytest.mark.parametrize("name", ["loop", "branch", "function"])
+@pytest.mark.parametrize("name", list(gen_fixtures.LESSONS))
 def test_lesson_equals_fixture(name):
     source = gen_fixtures.LESSONS[name]
     expected = json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
@@ -949,3 +989,521 @@ def test_closing_generator_with_finally_keeps_its_steps():
     assert [s["event"] for s in g_steps][-2:] == ["call", "line"]
     assert g_steps[-1]["line"] == 5
     assert result["steps"][-1]["stdout"] == "bye\n"
+
+
+# -- Level 2 lessons (ds-visualizers task 3) ----------------------------------
+
+LEVEL2_OUTPUT = {
+    "pair-sum": "[1, 2]\n",
+    "any-repeats": "True\n",
+    "sorted-pair": "[4, 6]\n",
+    "network-hops": "{'A': 0, 'B': 1, 'C': 1, 'D': 2, 'E': 3}\n",
+    "tree-height": "4\n",
+    "stairs": "13\n",
+}
+LEVEL2_STEPS = {
+    "pair-sum": 20, "any-repeats": 19, "sorted-pair": 33,
+    "network-hops": 61, "tree-height": 104, "stairs": 18,
+}
+
+
+@pytest.mark.parametrize("name", list(LEVEL2_OUTPUT))
+def test_level2_lesson_prints_expected_output(name):
+    result = run(gen_fixtures.LESSONS[name])
+    assert result["status"] == "ok" and result["truncated"] is False
+    assert result["steps"][-1]["stdout"] == LEVEL2_OUTPUT[name]
+    assert len(result["steps"]) == LEVEL2_STEPS[name]
+
+
+def final_locals(name):
+    return run(gen_fixtures.LESSONS[name])["steps"][-1]["locals"]
+
+
+def test_pair_sum_hash_map_keeps_int_keys_in_order():
+    steps = run(gen_fixtures.LESSONS["pair-sum"])["steps"]
+    seen = []
+    for s in steps:
+        v = s["locals"].get("seen")
+        if v is not None and (not seen or seen[-1] != v):
+            seen.append(v)
+    assert seen == [{"__dict": []}, {"__dict": [[4, 0]]}, {"__dict": [[4, 0], [9, 1]]}]
+    assert steps[-1]["locals"]["answer"] == [1, 2]
+
+
+def test_any_repeats_set_and_network_hops_structures():
+    assert final_locals("any-repeats")["seen"] == {"__set": [1, 5, 8]}
+    loc = final_locals("network-hops")
+    assert loc["deque"] == {"__type__": "type"}
+    assert loc["graph"]["__dict"][0] == ["A", ["B", "C"]]
+    assert loc["visited"] == {"__set": ["A", "B", "C", "D", "E"]}
+    assert loc["queue"] == {"__deque": []}
+    assert loc["hops"] == {"__dict": [["A", 0], ["B", 1], ["C", 1], ["D", 2], ["E", 3]]}
+    steps = run(gen_fixtures.LESSONS["network-hops"])["steps"]
+    queues = [s["locals"]["queue"]["__deque"] for s in steps if "queue" in s["locals"]]
+    assert ["B", "C"] in queues and ["C", "D"] in queues  # front first
+
+
+def test_tree_height_builds_a_heap_tree_and_a_call_stack():
+    steps = run(gen_fixtures.LESSONS["tree-height"])["steps"]
+    last = steps[-1]
+    root = last["locals"]["root"]
+    heap = last["heap"]
+    assert set(root) == {"__ref"}
+
+    def shape(ref):
+        if ref is None:
+            return None
+        node = heap[ref["__ref"]]
+        assert node["type"] == "TreeNode"
+        return [node["fields"]["val"], shape(node["fields"]["left"]), shape(node["fields"]["right"])]
+
+    assert shape(root) == [1, [2, [4, None, None], None], [3, None, [5, [6, None, None], None]]]
+    assert max(len(s["stack"]) for s in steps) == 6  # module + 5 max_depth frames
+    names = {fr["functionName"] for s in steps for fr in s["stack"]}
+    assert names == {"<module>", "TreeNode", "__init__", "max_depth"}  # TreeNode: the class body
+    # Each TreeNode keeps one id for the whole run.
+    ids = {}
+    for s in steps:
+        for hid, obj in s["heap"].items():
+            val = obj["fields"].get("val")
+            if val is not None:
+                assert ids.setdefault(hid, val) == val
+    assert sorted(ids.items()) == [("o1", 4), ("o2", 2), ("o3", 6), ("o4", 5), ("o5", 3), ("o6", 1)]
+
+
+def test_function_fixture_stack_inside_add():
+    data = json.loads((FIXTURES / "function.json").read_text(encoding="utf-8"))
+    inside = [s for s in data["steps"] if s["functionName"] == "add"]
+    for s in inside:
+        assert [fr["frameId"] for fr in s["stack"]] == ["module", "add-1"]
+        assert s["stack"][0]["line"] == 5
+        assert s["stack"][-1]["locals"] == s["locals"]
+    for s in data["steps"]:
+        assert len(s["stack"]) == s["depth"] + 1
+
+
+# -- value forms inside a trace (ds-visualizers task 2) -----------------------
+
+
+def test_trace_value_forms():
+    result = run(src("""
+        from collections import deque
+        t = (1, "a")
+        d = {"x": [1, 2], 3: None}
+        s = {"b", "a"}
+        f = frozenset({2, 1})
+        q = deque([1, 2])
+        q.appendleft(0)
+        done = 1
+    """))
+    loc = result["steps"][-1]["locals"]
+    assert loc["t"] == [1, "a"]
+    assert loc["d"] == {"__dict": [["x", [1, 2]], [3, None]]}
+    assert loc["s"] == {"__set": ["a", "b"]}
+    assert loc["f"] == {"__set": [1, 2]}
+    assert loc["q"] == {"__deque": [0, 1, 2]}
+    assert result["truncated"] is False
+
+
+def test_nesting_cap():
+    ok, cut = tracer.snapshot([[[[1]]]])
+    assert ok == [[[[1]]]] and cut is False
+    deep, cut = tracer.snapshot([[[[[1]]]]])
+    assert deep == [[[[{"__type__": "list"}]]]] and cut is True
+    mixed, cut = tracer.snapshot({"a": [{"b": (1,)}]})
+    assert mixed == {"__dict": [["a", [{"__dict": [["b", [1]]]}]]]} and cut is False
+    mixed, cut = tracer.snapshot({"a": [{"b": ([1],)}]})
+    assert mixed == {"__dict": [["a", [{"__dict": [["b", [{"__type__": "list"}]]]}]]]} and cut is True
+    assert tracer.MAX_NEST_DEPTH == 4
+
+
+def test_self_containing_containers_become_placeholders():
+    a = [1]
+    a.append(a)
+    assert tracer.snapshot(a) == ([1, {"__type__": "list"}], True)
+    d = {}
+    d["me"] = d
+    assert tracer.snapshot(d) == ({"__dict": [["me", {"__type__": "dict"}]]}, True)
+    # A container shared between siblings is not a cycle.
+    b = [1]
+    assert tracer.snapshot([b, b]) == ([[1], [1]], False)
+    result = run("a = []\na.append(a)\nb = 1\n")
+    assert result["steps"][-1]["locals"]["a"] == [{"__type__": "list"}]
+    assert result["truncated"] is True
+
+
+def main_ns(code: str) -> dict:
+    """Run code as `__main__` (classes then count as student-defined)."""
+    ns = {"__name__": "__main__"}
+    exec(textwrap.dedent(code), ns)
+    return ns
+
+
+def test_snapshot_with_heap_student_object():
+    ns = main_ns("""
+        class Node:
+            def __init__(self, val, nxt=None):
+                self.val = val
+                self.nxt = nxt
+                self.__hidden = 1
+                self.__dunder__ = 2
+        tail = Node(2)
+        head = Node(1, tail)
+    """)
+    loc, heap, cut = tracer.snapshot_with_heap({"head": ns["head"], "tail": ns["tail"]})
+    assert loc == {"head": {"__ref": "o1"}, "tail": {"__ref": "o2"}}
+    assert heap == {
+        "o1": {"id": "o1", "type": "Node", "fields": {"val": 1, "nxt": {"__ref": "o2"}, "_Node__hidden": 1}},
+        "o2": {"id": "o2", "type": "Node", "fields": {"val": 2, "nxt": None, "_Node__hidden": 1}},
+    }
+    assert cut is False
+
+
+def test_heap_ids_are_stable_and_first_seen():
+    result = run(src("""
+        class Box:
+            pass
+        a = Box()
+        a.n = 1
+        b = Box()
+        a.n = 2
+        del a
+        c = Box()
+        done = 1
+    """))
+    seen = {}
+    for s in result["steps"]:
+        for name in ("a", "b", "c"):
+            v = s["locals"].get(name)
+            if isinstance(v, dict) and "__ref" in v:
+                seen.setdefault(name, set()).add(v["__ref"])
+    assert seen == {"a": {"o1"}, "b": {"o2"}, "c": {"o3"}}
+    ns = [s["heap"]["o1"]["fields"]["n"] for s in result["steps"] if "o1" in s["heap"] and s["heap"]["o1"]["fields"]]
+    assert ns[0] == 1 and ns[-1] == 2
+    last = result["steps"][-1]
+    assert list(last["heap"]) == ["o2", "o3"]  # o1 is unreachable now
+
+
+def test_shared_refs_and_objects_that_reference_each_other():
+    result = run(src("""
+        class P:
+            pass
+        a = P()
+        b = a
+        c = P()
+        a.other = c
+        c.other = a
+        items = [a, c, a]
+        done = 1
+    """))
+    last = result["steps"][-1]
+    loc, heap = last["locals"], last["heap"]
+    assert loc["a"] == loc["b"] == {"__ref": "o1"}
+    assert loc["c"] == {"__ref": "o2"}
+    assert loc["items"] == [{"__ref": "o1"}, {"__ref": "o2"}, {"__ref": "o1"}]
+    assert heap == {
+        "o1": {"id": "o1", "type": "P", "fields": {"other": {"__ref": "o2"}}},
+        "o2": {"id": "o2", "type": "P", "fields": {"other": {"__ref": "o1"}}},
+    }
+    assert result["truncated"] is False
+
+
+def test_heap_objects_reached_through_containers_fields_and_return_values():
+    result = run(src("""
+        class Leaf:
+            def __init__(self, v):
+                self.v = v
+        def make():
+            return Leaf(7)
+        box = {"k": [make()]}
+        done = 1
+    """))
+    ret = [s for s in result["steps"] if s["event"] == "return" and s["functionName"] == "make"][0]
+    ref = ret["returnValue"]["__ref"]
+    assert ret["heap"][ref] == {"id": ref, "type": "Leaf", "fields": {"v": 7}}
+    last = result["steps"][-1]
+    assert last["locals"]["box"] == {"__dict": [["k", [{"__ref": ref}]]]}
+
+
+HOSTILE_CLASSES = {
+    "getattribute": "    def __getattribute__(self, name):\n        called.append('ga')\n        return object.__getattribute__(self, name)\n",
+    "getattr": "    def __getattr__(self, name):\n        called.append('gattr')\n        return 1\n",
+    "slots": "    __slots__ = ('x',)\n",
+    "dict_property": "    @property\n    def __dict__(self):\n        called.append('dict')\n        return {'fake': 1}\n",
+}
+
+
+@pytest.mark.parametrize("kind", list(HOSTILE_CLASSES))
+def test_hostile_classes_are_placeholders_and_never_invoked(kind):
+    body = HOSTILE_CLASSES[kind]
+    source = (
+        "called = []\n"
+        "class Base:\n" + body +
+        "class H(Base):\n    pass\n"
+        "h = H()\n"
+        "b = Base()\n"
+        "pair = [h, {'k': b}]\n"
+        "n = len(called)\n"
+    )
+    result = run(source)
+    assert result["status"] == "ok", result.get("message")
+    last = result["steps"][-1]
+    assert last["locals"]["h"] == {"__type__": "H"}
+    assert last["locals"]["b"] == {"__type__": "Base"}
+    assert last["locals"]["pair"] == [{"__type__": "H"}, {"__dict": [["k", {"__type__": "Base"}]]}]
+    assert last["locals"]["called"] == []
+    assert last["locals"]["n"] == 0
+    assert all(not s["heap"] for s in result["steps"])
+    special = {"__getattribute__", "__getattr__", "__dict__"}
+    assert not special & {s["functionName"] for s in result["steps"]}
+
+
+def test_eq_hash_repr_are_never_called_on_heap_objects():
+    result = run(src("""
+        called = []
+        class K:
+            def __init__(self, v):
+                self.v = v
+            def __eq__(self, other):
+                called.append("eq")
+                return False
+            def __hash__(self):
+                called.append("hash")
+                return 1
+            def __repr__(self):
+                called.append("repr")
+                return "K"
+        a = K(1)
+        b = K(2)
+        group = {a, b}
+        index = {a: "first"}
+        called.clear()
+        done = 1
+        n = len(called)
+    """))
+    last = result["steps"][-1]
+    # Student code itself hashed and compared above; the tracer never does.
+    assert last["locals"]["called"] == [] and last["locals"]["n"] == 0
+    assert "__repr__" not in {s["functionName"] for s in result["steps"]}
+    group = last["locals"]["group"]["__set"]
+    assert sorted(r["__ref"] for r in group) == ["o1", "o2"]
+    assert last["locals"]["index"] == {"__dict": [[{"__type__": "K"}, "first"]]}  # keys aren't refs
+    assert last["heap"]["o1"]["fields"] == {"v": 1}
+
+
+def test_metaclass_builtin_base_and_dict_replacement_are_placeholders():
+    result = run(src("""
+        class Meta(type):
+            def __getattribute__(cls, name):
+                raise RuntimeError("metaclass called")
+        class M(metaclass=Meta):
+            pass
+        class L(list):
+            pass
+        class E(Exception):
+            pass
+        class D(dict):
+            pass
+        class Odd:
+            pass
+        m = M()
+        l = L([1])
+        e = E("x")
+        o = Odd()
+        o.__dict__ = D(a=1)
+        done = 1
+    """))
+    assert result["status"] == "ok"
+    loc = result["steps"][-1]["locals"]
+    assert loc["m"] == {"__type__": "M"}
+    assert loc["l"] == {"__type__": "L"}
+    assert loc["e"] == {"__type__": "E"}
+    assert loc["o"] == {"__type__": "Odd"}
+    assert result["steps"][-1]["heap"] == {}
+
+
+def test_class_made_unsafe_mid_run_turns_into_a_placeholder():
+    result = run(src("""
+        class C:
+            pass
+        c = C()
+        c.x = 1
+        C.__getattr__ = lambda self, name: 0
+        done = 1
+    """))
+    by_line = {s["line"]: s for s in result["steps"] if s["event"] == "line"}
+    assert by_line[5]["locals"]["c"] == {"__ref": "o1"}
+    assert result["steps"][-1]["locals"]["c"] == {"__type__": "C"}
+
+
+def test_heap_cap_sets_truncated():
+    n = MAX_HEAP_OBJECTS + 50
+    result = run(src(f"""
+        import types
+        class N:
+            pass
+        box = types.SimpleNamespace(nodes=list(map(object.__new__, [N] * {n})))
+        box.links = list(map(setattr, box.nodes, ["nxt"] * {n - 1}, box.nodes[1:]))
+        head = box.nodes[0]
+        done = 1
+    """))
+    assert result["status"] == "ok" and result["truncated"] is True
+    last = result["steps"][-1]
+    heap = last["heap"]
+    assert len(heap) == MAX_HEAP_OBJECTS
+    assert last["locals"]["head"] == {"__ref": "o1"}
+    assert heap[f"o{MAX_HEAP_OBJECTS}"]["fields"]["nxt"] == {"__type__": "N"}
+    assert heap[f"o{MAX_HEAP_OBJECTS - 1}"]["fields"]["nxt"] == {"__ref": f"o{MAX_HEAP_OBJECTS}"}
+
+
+def test_heap_cap_exactly_at_limit_is_not_truncated():
+    n = MAX_HEAP_OBJECTS
+    result = run(src(f"""
+        import types
+        class N:
+            pass
+        box = types.SimpleNamespace(nodes=list(map(object.__new__, [N] * {n})))
+        box.links = list(map(setattr, box.nodes, ["nxt"] * {n - 1}, box.nodes[1:]))
+        head = box.nodes[0]
+        done = 1
+    """))
+    assert result["truncated"] is False
+    assert len(result["steps"][-1]["heap"]) == MAX_HEAP_OBJECTS
+
+
+# -- stack (ds-visualizers task 2) --------------------------------------------
+
+
+def test_stack_lists_every_active_frame_outermost_first():
+    result = run(src("""
+        def inner(a):
+            here = a
+            return a + 1
+        def outer(b):
+            mine = b * 2
+            return inner(mine)
+
+        r = outer(1)
+    """))
+    here = [s for s in result["steps"] if s["event"] == "line" and s["line"] == 3][0]
+    stack = here["stack"]
+    assert [fr["frameId"] for fr in stack] == ["module", "outer-1", "inner-1"]
+    assert [fr["functionName"] for fr in stack] == ["<module>", "outer", "inner"]
+    assert [fr["line"] for fr in stack] == [8, 6, 3]  # each frame's pending line
+    assert stack[1]["locals"] == {"b": 1, "mine": 2}
+    assert stack[0]["locals"] == {"inner": {"__type__": "function"}, "outer": {"__type__": "function"}}
+    assert stack[-1]["locals"] == here["locals"] == {"a": 2, "here": 2}
+    assert here["depth"] == 2
+    for s in result["steps"]:
+        assert len(s["stack"]) == s["depth"] + 1
+        assert s["stack"][-1]["frameId"] == s["frameId"]
+        assert s["stack"][-1]["locals"] == s["locals"]
+
+
+def test_stack_of_a_resumed_generator_follows_the_resumer():
+    result = run(src("""
+        def gen():
+            yield 1
+            yield 2
+        def take(it):
+            return next(it)
+        g = gen()
+        a = next(g)
+        b = take(g)
+    """))
+    gen_steps = steps_for(result, "gen-1")
+    stacks = [[fr["frameId"] for fr in s["stack"]] for s in gen_steps]
+    assert ["module", "gen-1"] in stacks
+    assert ["module", "take-1", "gen-1"] in stacks
+    # While suspended, the generator is not on the stack.
+    between = [s for s in result["steps"] if s["event"] == "line" and s["line"] == 8][0]
+    assert [fr["frameId"] for fr in between["stack"]] == ["module"]
+
+
+def test_terminal_exception_step_has_the_stack_at_the_failure():
+    result = run(src("""
+        class Box:
+            pass
+        def g(x):
+            return x.v / 0
+        def f():
+            box = Box()
+            box.v = 3
+            return g(box)
+        f()
+    """))
+    last = result["steps"][-1]
+    assert last["event"] == "exception"
+    assert [fr["frameId"] for fr in last["stack"]] == ["module", "f-1", "g-1"]
+    assert last["depth"] == 2
+    ref = last["locals"]["x"]["__ref"]
+    assert last["stack"][1]["locals"]["box"] == {"__ref": ref}
+    assert last["heap"][ref]["fields"] == {"v": 3}
+
+
+# -- caps: step, trace (ds-visualizers task 2) --------------------------------
+
+
+def test_step_byte_cap_empties_outer_frames_first():
+    big = "['y' * 200] * 20"
+    result = run(src(f"""
+        def g():
+            d = {big}
+            return 1
+        def f():
+            b = {big}
+            c = {big}
+            return g()
+        a = {big}
+        f()
+    """))
+    assert result["status"] == "ok" and result["truncated"] is True
+    ret = [s for s in result["steps"] if s["event"] == "return" and s["functionName"] == "g"][0]
+    assert ret["stack"][0]["locals"] == {} and ret["stack"][1]["locals"] == {}
+    assert ret["locals"]["d"] == ["y" * 200] * 20
+    assert ret["stack"][-1]["locals"] == ret["locals"]
+    assert step_size(ret) <= STEP_BYTE_CAP
+
+
+def test_step_byte_cap_turns_heap_fields_into_placeholders():
+    result = run(src("""
+        class Box:
+            pass
+        boxes = []
+        for i in range(5):
+            b = Box()
+            b.items = ['z' * 200] * 20
+            boxes.append(b)
+        done = 1
+    """))
+    assert result["truncated"] is True
+    last = result["steps"][-1]
+    assert step_size(last) <= STEP_BYTE_CAP
+    assert len(last["locals"]["boxes"]) == 5
+    for ref in last["locals"]["boxes"]:
+        assert last["heap"][ref["__ref"]]["fields"] == {"items": {"__type__": "list"}}
+
+
+def test_trace_byte_cap_stops_with_limit():
+    start = time.perf_counter()
+    result = run("rows = ['x' * 200] * 20\nwhile True:\n    pass\n")
+    assert time.perf_counter() - start < 2
+    assert result["status"] == "limit" and result["truncated"] is True
+    assert result["message"] == tracer.DATA_LIMIT_MESSAGE
+    assert len(tracer.trace_json("rows = ['x' * 200] * 20\nwhile True:\n    pass\n").encode()) <= tracer.TRACE_BYTE_CAP
+    assert len(result["steps"]) < MAX_STEPS - 1
+
+
+def test_runaway_recursion_is_stopped_quickly_with_a_full_stack():
+    start = time.perf_counter()
+    result = run("def f(n):\n    return f(n + 1)\nf(0)\n")
+    assert time.perf_counter() - start < 2
+    assert result["status"] == "limit" and result["truncated"] is True
+    for s in result["steps"]:
+        assert len(s["stack"]) == s["depth"] + 1
+
+
+def test_limit_message_states_the_real_step_count():
+    result = run("i = 0\nwhile True:\n    i += 1\n")
+    assert result["status"] == "limit"
+    assert result["message"] == f"Stopped after {len(result['steps'])} steps. Is there a loop that never ends?"

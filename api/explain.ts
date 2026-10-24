@@ -9,6 +9,8 @@
 // Request body (JSON):
 //   { "prev"?: TraceStep | null, "curr": TraceStep, "lang": "en" | "es",
 //     "codeSlice"?: string, "codeHash"?: string, "stepIndex"?: number }
+// Steps follow the frozen contract (2026-10-24), including `heap` and
+// `stack`; older steps without them are still accepted.
 // Response 200: { "text": string, "source": "llm" | "template" }
 // Response 429: { "text": <template>, "source": "template" } (rate limited)
 // Errors: 405 (not POST), 413 (body over MAX_PAYLOAD_BYTES or codeSlice over
@@ -60,6 +62,9 @@ Each request contains one JSON object between <step_data> and </step_data>. Its 
 - event: "line" or "call" means the highlighted line is the next line to run and has NOT run yet. "return" means the function is finishing and giving back its result. "exception" means the highlighted line raised an error.
 - highlightedLine: the line number the student sees highlighted.
 - previous and current: snapshots of the program before and at this step (variables, everything printed so far, return value, error). previous is null on the first step.
+  - stack lists the active function calls, outermost first; the last entry is the current call.
+  - Values use tagged forms: {"__dict": [[key, value], ...]} is a dictionary, {"__set": [...]} is a set, {"__deque": [...]} is a queue listed front first, and {"__ref": id} is an object stored in heap under that id. {"__type__": name} is a value that is not shown.
+  - Describe these the way Python shows them (for example {4: 0} or TreeNode(val=2)). Never write the tags, heap ids, or how deep the stack is as a number.
 - code: a few source lines around the previous and current lines.
 - reference: a correct, plain explanation of this step written by CodeLens.
 
@@ -152,7 +157,25 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Minimal shape check against the frozen TraceStep contract. */
+function isFrame(v: unknown): boolean {
+  return (
+    isRecord(v) &&
+    typeof v.functionName === "string" &&
+    typeof v.frameId === "string" &&
+    typeof v.line === "number" &&
+    isRecord(v.locals)
+  );
+}
+
+function isHeap(v: unknown): boolean {
+  if (!isRecord(v)) return false;
+  for (const obj of Object.values(v)) {
+    if (!isRecord(obj) || typeof obj.id !== "string" || typeof obj.type !== "string" || !isRecord(obj.fields)) return false;
+  }
+  return true;
+}
+
+/** Minimal shape check against the frozen TraceStep contract. heap/stack may be missing (older clients). */
 function isStep(v: unknown): v is TraceStep {
   if (!isRecord(v)) return false;
   if (typeof v.index !== "number" || typeof v.line !== "number" || typeof v.depth !== "number") return false;
@@ -162,6 +185,8 @@ function isStep(v: unknown): v is TraceStep {
   if (v.error !== undefined) {
     if (!isRecord(v.error) || typeof v.error.type !== "string" || typeof v.error.message !== "string") return false;
   }
+  if (v.heap !== undefined && !isHeap(v.heap)) return false;
+  if (v.stack !== undefined && !(Array.isArray(v.stack) && v.stack.every(isFrame))) return false;
   return true;
 }
 
@@ -219,8 +244,31 @@ async function readCapped(request: Request, cap: number): Promise<string | null>
 // ---------------------------------------------------------------------------
 // Prompt.
 
+/**
+ * How much of the stack and heap goes to the model, from most to least:
+ * 0 everything; 1 frames other than the current one lose their locals;
+ * 2 only the current frame is sent; 3 the heap is left out too.
+ */
+export const TRIM_LEVELS = [0, 1, 2, 3] as const;
+export type TrimLevel = (typeof TRIM_LEVELS)[number];
+
+function viewStack(step: TraceStep, level: TrimLevel): Record<string, unknown>[] {
+  const stack = Array.isArray(step.stack) ? step.stack : [];
+  let current = stack.findIndex((f) => f.frameId === step.frameId);
+  if (current === -1) current = stack.length - 1;
+  const out: Record<string, unknown>[] = [];
+  stack.forEach((f, i) => {
+    const isCurrent = i === current;
+    if (level >= 2 && !isCurrent) return;
+    const frame: Record<string, unknown> = { functionName: f.functionName, line: f.line };
+    if (isCurrent || level === 0) frame.locals = f.locals;
+    out.push(frame);
+  });
+  return out;
+}
+
 /** The snapshot fields the model may use. index/depth/frameId are not number sources, so they are left out. */
-function view(step: TraceStep | undefined): Record<string, unknown> | null {
+function view(step: TraceStep | undefined, level: TrimLevel = 0): Record<string, unknown> | null {
   if (step === undefined) return null;
   const out: Record<string, unknown> = {
     line: step.line,
@@ -231,17 +279,19 @@ function view(step: TraceStep | undefined): Record<string, unknown> | null {
   };
   if (step.returnValue !== undefined) out.returnValue = step.returnValue;
   if (step.error !== undefined) out.error = step.error;
+  out.stack = viewStack(step, level);
+  if (level < 3) out.heap = step.heap !== null && typeof step.heap === "object" ? step.heap : {};
   return out;
 }
 
 /** The user message. All student-controlled text is JSON-encoded with < > & escaped, so it cannot close the tag. */
-export function buildUserMessage(body: Body, reference: string): string {
+export function buildUserMessage(body: Body, reference: string, level: TrimLevel = 0): string {
   const data = {
     language: body.lang === "es" ? "Spanish" : "English",
     event: body.curr.event,
     highlightedLine: body.curr.line,
-    previous: view(body.prev),
-    current: view(body.curr),
+    previous: view(body.prev, level),
+    current: view(body.curr, level),
     code: body.codeSlice,
     reference,
   };
@@ -252,12 +302,29 @@ export function buildUserMessage(body: Body, reference: string): string {
   return `Explain this step for the student.\n<step_data>\n${encoded}\n</step_data>`;
 }
 
-/** Accept an LLM reply only if it is short, non-empty and invents no numbers. */
+/**
+ * The user message at the least trimming that fits MAX_PAYLOAD_BYTES (UTF-8),
+ * trimming other stack frames first, then the heap. Null if nothing fits.
+ */
+export function fitUserMessage(body: Body, reference: string, maxBytes: number = MAX_PAYLOAD_BYTES): string | null {
+  const enc = new TextEncoder();
+  for (const level of TRIM_LEVELS) {
+    const msg = buildUserMessage(body, reference, level);
+    if (enc.encode(msg).byteLength <= maxBytes) return msg;
+  }
+  return null;
+}
+
+/** Raw snapshot tags must never reach the student. */
+const RAW_TAG = /__(?:dict|set|deque|ref|type|len)(?:__)?(?![A-Za-z0-9])|\{"__/;
+
+/** Accept an LLM reply only if it is short, non-empty, shows no raw tags and invents no numbers. */
 export function acceptReply(reply: LlmReply, body: Body): string | null {
   if (reply.stopReason !== "end_turn") return null; // refusal, max_tokens, pause_turn, ...
   const text = reply.text.replace(/\s+/g, " ").trim();
   if (text === "" || text.length > MAX_REPLY_CHARS) return null;
   if (text.includes(USE_TEMPLATE)) return null;
+  if (RAW_TAG.test(text)) return null;
   if (inventedNumbers(text, body.prev, body.curr, [body.codeSlice]).length > 0) return null;
   return text;
 }
@@ -437,11 +504,9 @@ export function createHandler(options: HandlerOptions = {}): (request: Request) 
       if (completeFor === undefined || completeFor.key !== apiKey) {
         completeFor = { key: apiKey, complete: makeComplete(apiKey) };
       }
-      const reply = await withDeadline(
-        completeFor.complete,
-        { system: SYSTEM_PROMPT, user: buildUserMessage(body, reference) },
-        timeoutMs,
-      );
+      const user = fitUserMessage(body, reference);
+      if (user === null) return json(200, template);
+      const reply = await withDeadline(completeFor.complete, { system: SYSTEM_PROMPT, user }, timeoutMs);
       const text = reply === null ? null : acceptReply(reply, body);
       if (text === null) return json(200, template);
       if (key !== undefined) cache.set(key, fp, text);

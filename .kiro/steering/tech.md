@@ -48,7 +48,7 @@ type TraceStep = {
   returnValue?: JsonValue;
   error?: { type: string; message: string };
   heap: Record<string, HeapObject>;
-  stack: StackFrame[];       // calling frames, outermost first
+  stack: StackFrame[];       // all active user frames, outermost first; last = current frame
 };
 
 type TraceResult = {
@@ -60,9 +60,10 @@ type TraceResult = {
 };
 ```
 
-- `TraceStep.locals` stays the current frame's locals. `stack` holds the
-  frames that called it, outermost first, and does not repeat the current
-  frame.
+- `TraceStep.locals` stays the current frame's locals. `stack` holds every
+  active user frame, outermost first; its last entry is the current frame, so
+  `stack.length` equals the number of active user frames (decided 2026-10-24,
+  wave 3).
 - Lists and tuples stay plain JSON arrays. A dict is always written as
   `{"__dict": ...}`, never as a plain JSON object.
 - Placeholders keep their existing `{"__type__": name}` shape.

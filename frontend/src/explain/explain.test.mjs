@@ -155,11 +155,19 @@ const CASES = [
     es: ["big pasó de una lista con 12 elementos a una lista con 13 elementos"],
   },
   {
+    // Wave 3: an append is described item by item (see structures.test.mjs).
     name: "changed variable (list grows)",
     prev: step({ line: 2, locals: { nums: [3, 1] } }),
     curr: step({ line: 3, locals: { nums: [3, 1, 2] } }),
-    en: ["changed nums from [3, 1] to [3, 1, 2]"],
-    es: ["nums pasó de [3, 1] a [3, 1, 2]"],
+    en: ["Line 2 just ran, and 2 was added to the end of nums."],
+    es: ["Ya se ejecutó la línea 2: 2 se agregó al final de nums."],
+  },
+  {
+    name: "changed variable (list replaced by a different list)",
+    prev: step({ line: 2, locals: { nums: [3, 1] } }),
+    curr: step({ line: 3, locals: { nums: [5] } }),
+    en: ["changed nums from [3, 1] to [5]"],
+    es: ["nums pasó de [3, 1] a [5]"],
   },
   {
     name: "deleted variable",
