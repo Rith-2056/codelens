@@ -10,19 +10,21 @@ import type { JsonValue, TraceStep } from "../types/trace.ts";
 import { diffStep } from "./diff.ts";
 import { readError, type ErrorInfo } from "./errors.ts";
 import {
+  branchOutcome,
   callerFrame,
   heapOf,
   isRecursiveCall,
   membership,
   stackOf,
   stepEvents,
+  type Branch,
   type Membership,
   type StructEvent,
 } from "./events.ts";
 import { sameValue } from "./snapshot.ts";
 import { proseText, viewValue, type ValueView } from "./values.ts";
 
-export type { Membership, StructEvent } from "./events.ts";
+export type { Branch, Membership, StructEvent } from "./events.ts";
 
 export const MODULE = "<module>";
 
@@ -64,8 +66,9 @@ export type Lead =
    * `items`: set when a data structure changed or a pointer moved; then the
    * renderers describe `items` instead of `changes`.
    * `check`: a membership condition that ran and changed nothing.
+   * `branch`: any other if / elif / while condition that ran and changed nothing.
    */
-  | { kind: "ran"; line: number; changes: Changes; items?: Items; check?: Membership }
+  | { kind: "ran"; line: number; changes: Changes; items?: Items; check?: Membership; branch?: Branch }
   /**
    * `inner`: a call returned into another call of the same function (recursion).
    * `now`: variables of the caller that changed when the call finished.
@@ -233,6 +236,8 @@ function leadFor(prev: TraceStep, curr: TraceStep, source: string | undefined): 
       if (!hasChanges(changes)) {
         const check = membership(prev, curr, source);
         if (check !== undefined) return { kind: "ran", line: prev.line, changes, check };
+        const branch = branchOutcome(prev, curr, source);
+        if (branch !== undefined) return { kind: "ran", line: prev.line, changes, branch };
       }
       return { kind: "ran", line: prev.line, changes };
     }

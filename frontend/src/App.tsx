@@ -81,7 +81,14 @@ export default function App() {
               href={hrefFor(item.route)}
               aria-current={navPage(item.route) === navPage(route) ? "page" : undefined}
             >
-              {item.label}
+              {item.label.startsWith("My ") ? (
+                <>
+                  {/* "My " is hidden on very narrow screens; screen readers still hear it. */}
+                  <span className="nav-long">My</span> <span className="nav-rest">{item.label.slice(3)}</span>
+                </>
+              ) : (
+                item.label
+              )}
             </a>
           ))}
         </nav>

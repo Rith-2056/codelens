@@ -370,11 +370,26 @@ test("membership: set with in, list, deque, elif, while and literals", () => {
   });
 });
 
-test("membership: not evaluable from the snapshot falls back to the plain template", () => {
+test("membership: not evaluable from the snapshot never claims what is in the container", () => {
+  // Without source, or on a line that is not a condition: the plain template.
   const plainEn = "just ran, and no variables changed.";
   const plainEs = "pero no cambió ninguna variable.";
+  for (const [label, source] of [["no source", undefined], ["not a condition line", "n in seen\n"]]) {
+    check({
+      name: `membership fallback: ${label}`,
+      source,
+      prev: step({ line: 1, locals: { seen: set(1), n: 1 } }),
+      curr: step({ line: 2, locals: { seen: set(1), n: 1 } }),
+      en: [plainEn],
+      es: [plainEs],
+      not_en: ["checked"],
+      not_es: ["comprobó"],
+    });
+  }
+  // On a condition line, the result still comes from where the trace went
+  // next (line 2 is inside the block, so True), but nothing is said about
+  // what the container holds.
   const cases = [
-    ["no source", undefined, { seen: set(1), n: 1 }],
     ["unknown name", "if m in seen:\n    pass\n", { seen: set(1), n: 1 }],
     ["container is a placeholder", "if n in seen:\n    pass\n", { seen: { __type__: "set", __len__: 40 }, n: 1 }],
     ["container holds objects (custom __eq__)", "if n in nodes:\n    pass\n", { nodes: [ref("o1")], n: 1 }],
@@ -383,7 +398,6 @@ test("membership: not evaluable from the snapshot falls back to the plain templa
     ["attribute access", "if n in self.seen:\n    pass\n", { seen: set(1), n: 1 }],
     ["literal number not in the data", "if 42 in seen:\n    pass\n", { seen: set(1) }],
     ["a string container", "if c in word:\n    pass\n", { word: "abc", c: "a" }],
-    ["not a condition line", "n in seen\n", { seen: set(1), n: 1 }],
   ];
   for (const [label, source, locals] of cases) {
     check({
@@ -391,10 +405,10 @@ test("membership: not evaluable from the snapshot falls back to the plain templa
       source,
       prev: step({ line: 1, locals, heap: { o1: { id: "o1", type: "Node", fields: {} } } }),
       curr: step({ line: 2, locals, heap: { o1: { id: "o1", type: "Node", fields: {} } } }),
-      en: [plainEn],
-      es: [plainEs],
-      not_en: ["checked"],
-      not_es: ["comprobó"],
+      en: ["so it's True and Python goes into that block."],
+      es: ["así que da True y Python entra en ese bloque."],
+      not_en: ["which is", "is a key", "is in"],
+      not_es: ["que es", "es una clave", "está en"],
     });
   }
 });
@@ -587,3 +601,78 @@ test("the number check accepts tagged contents, heap fields and stack locals, bu
   assert.deepEqual(inventedNumbers("a[0] and a[1]", p2, p2), ["0", "1"]);
 });
 
+
+// ---- any if / elif / while condition: say whether it was True or False ----------
+
+const BRANCH_SRC = [
+  "total = 0",
+  "while left < right:",
+  "    total = nums[left] + nums[right]",
+  "    if total == target:",
+  "        print(total)",
+  "    elif total < target:",
+  "        left += 1",
+  "    if total > 99:",
+  "        print(total)",
+  "print(left)",
+].join("\n") + "\n";
+const vars = { nums: [1, 2, 4], left: 0, right: 2, target: 6, total: 5 };
+
+test("an if condition that was True: Python goes into that block", () => {
+  check({
+    name: "if true",
+    source: BRANCH_SRC,
+    prev: step({ line: 4, locals: { ...vars, total: 6 } }),
+    curr: step({ line: 5, locals: { ...vars, total: 6 } }),
+    en: ["Line 4 just checked total == target, so it's True and Python goes into that block."],
+    es: ["Ya se ejecutó la línea 4, que comprobó total == target, así que da True y Python entra en ese bloque."],
+  });
+});
+
+test("an if condition that was False: Python skips that block (and elif is checked next)", () => {
+  check({
+    name: "if false",
+    source: BRANCH_SRC,
+    prev: step({ line: 4, locals: vars }),
+    curr: step({ line: 6, locals: vars }),
+    en: ["Line 4 just checked total == target, so it's False and Python skips that block."],
+    es: ["así que da False y Python se salta ese bloque."],
+  });
+  check({
+    name: "elif true",
+    source: BRANCH_SRC,
+    prev: step({ line: 6, locals: vars }),
+    curr: step({ line: 7, locals: vars }),
+    en: ["Line 6 just checked total < target, so it's True and Python goes into that block."],
+  });
+});
+
+test("a while condition: True runs the loop body, False leaves the loop", () => {
+  check({
+    name: "while true",
+    source: BRANCH_SRC,
+    prev: step({ line: 2, locals: vars }),
+    curr: step({ line: 3, locals: vars }),
+    en: ["Line 2 just checked left < right, so it's True and Python runs the loop body."],
+    es: ["así que da True y Python ejecuta el cuerpo del bucle."],
+  });
+  check({
+    name: "while false",
+    source: BRANCH_SRC,
+    prev: step({ line: 2, locals: { ...vars, left: 2 } }),
+    curr: step({ line: 10, locals: { ...vars, left: 2 } }),
+    en: ["Line 2 just checked left < right, so it's False and Python leaves the loop."],
+  });
+});
+
+test("a condition with a number that is not in the data is not quoted (no invented numbers)", () => {
+  check({
+    name: "literal in condition",
+    source: BRANCH_SRC,
+    prev: step({ line: 8, locals: vars }),
+    curr: step({ line: 10, locals: vars }),
+    en: ["Line 8 just checked its condition, so it's False and Python skips that block."],
+    not_en: ["99"],
+    es: ["que comprobó su condición, así que da False"],
+  });
+});

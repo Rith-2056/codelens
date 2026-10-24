@@ -323,6 +323,43 @@ export function membership(prev: TraceStep, curr: TraceStep, source: string | un
   };
 }
 
+/** Any if / elif / while condition that ran: whether it was True. */
+export type Branch = {
+  /** The condition as written, or null when quoting it could show a number that is not in the data. */
+  cond: string | null;
+  result: boolean;
+  loop: boolean;
+};
+
+const MAX_COND = 60;
+const indentOf = (s: string) => /^[ \t]*/.exec(s)![0].replace(/\t/g, "    ").length;
+
+/**
+ * Whether the condition on prev.line was True, told from where the trace went
+ * next: into the block (the next code line, indented deeper) or not. Only for
+ * a step that stayed in the same frame and ran nothing else.
+ */
+export function branchOutcome(prev: TraceStep, curr: TraceStep, source: string | undefined): Branch | undefined {
+  if (prev.frameId !== curr.frameId || curr.event !== "line") return undefined;
+  const code = sourceLine(source, prev.line);
+  const next = sourceLine(source, curr.line);
+  if (code === undefined || next === undefined) return undefined;
+  const m = code.match(CONDITION);
+  if (m === null) return undefined;
+  let between = true;
+  for (let n = prev.line + 1; n < curr.line; n++) {
+    const t = sourceLine(source, n)?.trim() ?? "";
+    if (t !== "" && !t.startsWith("#")) between = false;
+  }
+  const result = curr.line > prev.line && between && indentOf(next) > indentOf(code);
+  let cond: string | null = m[2].trim();
+  const paren = cond.match(/^\((.*)\)$/);
+  if (paren !== null) cond = paren[1].trim();
+  const allowed = allowedNumbers(prev, curr);
+  if (cond.length > MAX_COND || numberTokens(cond).some((t) => !allowed.has(t))) cond = null;
+  return { cond, result, loop: m[1] === "while" };
+}
+
 // ---------------------------------------------------------------------------
 // Recursion.
 

@@ -648,3 +648,43 @@ deletes both halves. Enter between brackets opens an indented line. Edits go
 through `insertText`, so the browser's undo still works. A test caught a bug
 before it shipped: at the end of the text, "no pair" and "no next
 character" compared as equal, so Backspace would have deleted two characters.
+
+**16d: full UX review, fixes tests first.** I walked through the whole app
+as a first-time user (home → problem list → write a wrong Two Sum → Run →
+Submit → visualizer → sessions → Your code), at 1440x900 and on a 375 px
+phone. Fixes, most important first:
+- **Results were hidden.** After Submit, the verdict, the likely-mistake note
+  and the help needed 573 px in a 249 px panel. Run and Submit moved into the
+  panel header, and the result now scrolls into view.
+- **Conditions weren't explained.** A line like `if nums[i] + nums[j] ==
+  target:` said "no variables changed". Every if/elif/while now says whether
+  it was True or False and what Python does next, in English and Spanish. The
+  answer is read from where the trace went next. A condition is not quoted if
+  that would show a number that isn't in the data.
+- **Confusing names.** Visualize sat next to Open Code Visualizer on Your
+  code; Visualize is now Run, like the problem pages.
+- **Home page.** It had no first step, outdated copy ("side by side") and
+  mostly empty space. It now has a clear headline, a "Start with Two Sum"
+  button, and how CodeLens works in three steps.
+- **Problem panel.** It repeated the editor's stub and never showed expected
+  answers. Now it shows Examples (Input / Output), LeetCode-style.
+- **First visit.** The empty Step through panel now explains the page in
+  three steps, and one line says how Run and Submit differ.
+- **Problem list.** It now shows Solved / Tried from your sessions and "N of
+  8 solved", with aligned columns.
+- **What changed.** The first step of a call now names the call and its
+  arguments instead of "Nothing changed".
+- **Editor.** Backspace in leading spaces goes back one indent level.
+- **Phone header.** It took two rows and stayed pinned. Now it is one row
+  that scrolls away. On very narrow screens "My sessions" shows as "Sessions";
+  screen readers still hear "My sessions". The tests caught a broken
+  accessible name ("Mysessions") on the way.
+- **Focus boxes.** The large box drawn around each page's heading after
+  navigation is gone. Focus still moves there for screen readers.
+
+Checked in the browser:
+- the condition sentence on a real nested-loop bug
+- the draft surviving navigation
+- the result in view after Submit
+- the phone header on one row with no sideways scroll
+- the list's progress badges

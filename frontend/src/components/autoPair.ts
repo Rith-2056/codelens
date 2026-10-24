@@ -6,7 +6,8 @@
 // - " and ' pair up too, but not right after a letter or digit (it's);
 // - typing a closing bracket or quote that is already next steps over it;
 // - with text selected, a bracket or quote wraps it;
-// - Backspace inside an empty pair deletes both halves;
+// - Backspace inside an empty pair deletes both halves, and in a line's
+//   leading spaces goes back one indent level;
 // - Enter between brackets puts the closing one on its own line.
 
 export type Edit = { value: string; selStart: number; selEnd: number };
@@ -45,6 +46,15 @@ export function autoPair(key: string, value: string, start: number, end: number)
 
   if (key === "Backspace" && emptyPair) {
     return { value: value.slice(0, start - 1) + value.slice(start + 1), selStart: start - 1, selEnd: start - 1 };
+  }
+
+  // Backspace in a line's leading spaces: back to the previous indent level.
+  if (key === "Backspace" && start === end) {
+    const lead = value.slice(value.lastIndexOf("\n", start - 1) + 1, start);
+    if (lead.length > 0 && /^ +$/.test(lead)) {
+      const to = start - (lead.length % INDENT.length || INDENT.length);
+      return { value: value.slice(0, to) + value.slice(start), selStart: to, selEnd: to };
+    }
   }
 
   if (key === "Enter" && emptyPair && before !== '"' && before !== "'") {

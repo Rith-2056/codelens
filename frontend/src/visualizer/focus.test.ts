@@ -4,7 +4,8 @@
 import { describe, expect, it } from "vitest";
 import type { JsonValue, TraceResult, TraceStep } from "../types/trace";
 import { hideSolutionSelf } from "../components/practiceView";
-import { accessedCells, codeContext, detectPattern, evalIndex, firstRealStep, variableGroups } from "./focus";
+import { accessedCells, codeContext, detectPattern, evalIndex, firstRealStep, stepChanges, variableGroups } from "./focus";
+import { previousInFrame } from "../components/stepInfo";
 import { lessons } from "../lessons";
 
 const raw = import.meta.glob("../../../shared/fixtures/practice/*.json", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
@@ -140,5 +141,17 @@ describe("firstRealStep: where a run starts", () => {
     const { program, steps } = run("two-sum");
     expect(firstRealStep(steps.slice(0, 2), program, "twoSum")).toBe(0);
     expect(firstRealStep([], program)).toBe(0);
+  });
+});
+
+describe("stepChanges", () => {
+  it("at a function's first line, names the call and the arguments it got (not 'nothing changed')", () => {
+    const { program, steps } = run("two-sum");
+    const k = firstRealStep(steps, program, "twoSum");
+    expect(stepChanges(steps[k]!, previousInFrame(steps, k)).map((c) => c.shown)).toEqual([
+      "twoSum() was called",
+      "nums = [3, 8, 5, 1]",
+      "target = 6",
+    ]);
   });
 });

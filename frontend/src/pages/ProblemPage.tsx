@@ -75,6 +75,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   /** After a run the code panel shows the run's code; Edit code brings the editor back. */
   const [editing, setEditing] = useState(false);
   const latest = useRef(0);
+  const resultRef = useRef<HTMLDivElement>(null);
   const refSwitch = useRef<HTMLButtonElement>(null);
   const focusSwitch = useRef(false);
   const mineStepper = useStepper(mine?.trace ?? null, mine?.id ?? null, mine?.program, problem.method);
@@ -89,6 +90,11 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   useEffect(() => {
     preloadTracer().catch(() => {});
   }, []);
+
+  // The tests panel can be short: bring each new result into view.
+  useEffect(() => {
+    if (message) resultRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [message]);
 
   // Your code is saved in this browser as you type (see drafts.ts).
   useEffect(() => {
@@ -296,10 +302,22 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
         <p className="problem-statement" lang={lang}>
           {problem.statement[lang]}
         </p>
-        <h3 className="subheading">Write your answer in this shape</h3>
-        <pre className="signature" {...scrollBox("Solution signature")}>
-          <code>{`class Solution:\n    ${problem.signature}`}</code>
-        </pre>
+        <h3 className="subheading" id="examples-heading">
+          Examples
+        </h3>
+        <ol className="example-list" aria-label="Examples">
+          {problem.examples.map((ex, k) => (
+            <li key={k}>
+              <pre className="example-io" {...scrollBox(`Example ${k + 1}`)}>
+                <code>
+                  <span className="example-key">Input:</span> {formatInput(problem.params, ex.args)}
+                  {"\n"}
+                  <span className="example-key">Output:</span> {formatValue(ex.expected)}
+                </code>
+              </pre>
+            </li>
+          ))}
+        </ol>
       </section>
 
       <section className="panel ws-code" aria-labelledby="solution-heading">
@@ -345,7 +363,25 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
       </section>
 
       <section className="panel ws-tests" aria-labelledby="tests-heading">
-        <h2 id="tests-heading">Test your solution</h2>
+        <div className="panel-head">
+          <h2 id="tests-heading">Test your solution</h2>
+          <div className="toolbar">
+            {running && (
+              <span className="hint" role="status">
+                Checking…
+              </span>
+            )}
+            <button type="button" className="tool-button" onClick={run} aria-disabled={running}>
+              Run
+            </button>
+            <button type="button" className="visualize-button" onClick={submit} aria-disabled={running}>
+              Submit
+            </button>
+          </div>
+        </div>
+        <p className="hint tests-hint">
+          Run checks the selected example. Submit also tries hundreds of small inputs to find one that breaks your code.
+        </p>
         <div className="examples" role="group" aria-label="Examples">
           {problem.examples.map((ex, k) => (
             <button
@@ -375,21 +411,8 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
             </button>
           )}
         </div>
-        <div className="toolbar">
-          <button type="button" className="tool-button" onClick={run} aria-disabled={running}>
-            Run
-          </button>
-          <button type="button" className="visualize-button" onClick={submit} aria-disabled={running}>
-            Submit
-          </button>
-          {running && (
-            <span className="hint" role="status">
-              Checking…
-            </span>
-          )}
-        </div>
         {message && (
-          <div className={`run-status tone-${message.tone}`} role="status" aria-label="Result">
+          <div ref={resultRef} className={`run-status tone-${message.tone}`} role="status" aria-label="Result">
             {message.text}
           </div>
         )}
@@ -418,7 +441,17 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
       <section className="panel ws-visual" aria-labelledby="visual-heading">
         <h2 id="visual-heading">Step through</h2>
         {!mine ? (
-          <p className="empty">Run or Submit your solution to step through it here. The code panel will show the line that runs next.</p>
+          <ol className="how-to" aria-label="How to use this page">
+            <li>
+              <strong>Write</strong> your solution in the code panel. It is saved in this browser as you type.
+            </li>
+            <li>
+              <strong>Run</strong> it on an example, or <strong>Submit</strong> to search for an input that breaks it.
+            </li>
+            <li>
+              <strong>Step through</strong> the run here, or open the Code Visualizer to see every list and pointer move.
+            </li>
+          </ol>
         ) : (
           <>
             <div hidden={viewingRef}>

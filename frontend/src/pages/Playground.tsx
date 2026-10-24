@@ -212,7 +212,7 @@ export default function Playground() {
                 aria-disabled={!visualizeOk}
                 aria-describedby="run-status"
               >
-                {busy ? "Running…" : "Visualize"}
+                {busy ? "Running…" : "Run"}
               </button>
               <button type="button" className="tool-button open-visualizer" ref={openerRef} onClick={openVisualizer} aria-disabled={busy}>
                 Open Code Visualizer
@@ -301,7 +301,7 @@ export default function Playground() {
             <p className="empty">
               {traced && steps.length > 0
                 ? "Choose Show steps to step through your code here."
-                : "Click Visualize to run your code and step through it here."}
+                : "Click Run to run your code and step through it here."}
             </p>
           )}
         </section>

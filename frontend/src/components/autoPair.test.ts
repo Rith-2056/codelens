@@ -61,6 +61,14 @@ describe("autoPair", () => {
     expect(press("Enter", "x = 1|")).toBeNull(); // the editor's normal Enter handles this
   });
 
+  it("Backspace in leading spaces goes back one indent level (4 spaces), like an IDE", () => {
+    expect(press("Backspace", "if x:\n        |")).toBe("if x:\n    |");
+    expect(press("Backspace", "if x:\n      |")).toBe("if x:\n    |"); // to the previous multiple of 4
+    expect(press("Backspace", "    |return x")).toBe("|return x");
+    expect(press("Backspace", "x = 1  |")).toBeNull(); // spaces after code: normal Backspace
+    expect(press("Backspace", "|x")).toBeNull();
+  });
+
   it("ignores other keys", () => {
     expect(press("a", "x|")).toBeNull();
     expect(press("Tab", "x|")).toBeNull();

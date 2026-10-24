@@ -9,6 +9,7 @@ import {
   type Item,
   type Items,
   type Lead,
+  type Branch,
   type Membership,
   type OutputView,
   type Plan,
@@ -133,6 +134,13 @@ function check(line: number, c: Membership): string {
   return `Line ${line} just checked ${c.cond}: ${subject} ${where}, so it's ${c.result ? "True" : "False"} and ${then}.`;
 }
 
+function branch(line: number, b: Branch): string {
+  const then = b.loop
+    ? (b.result ? "Python runs the loop body" : "Python leaves the loop")
+    : (b.result ? "Python goes into that block" : "Python skips that block");
+  return `Line ${line} just checked ${b.cond ?? "its condition"}, so it's ${b.result ? "True" : "False"} and ${then}.`;
+}
+
 function nowText(now: VarView[]): string {
   return join(now.map((v) => `${v.name} is now ${value(v.value)}`));
 }
@@ -184,6 +192,7 @@ function leadText(lead: Lead, tail: Tail): string {
     case "ran":
       if (lead.items !== undefined) return `Line ${lead.line} just ran, and ${items(lead.items)}.`;
       if (lead.check !== undefined) return check(lead.line, lead.check);
+      if (lead.branch !== undefined) return branch(lead.line, lead.branch);
       if (hasChanges(lead.changes)) return `Line ${lead.line} just ran and ${changes(lead.changes)}.`;
       return tail.kind === "next" ? `Line ${lead.line} just ran, and no variables changed.` : "";
     case "returned": {

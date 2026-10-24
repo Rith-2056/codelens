@@ -10,6 +10,7 @@ import {
   type Item,
   type Items,
   type Lead,
+  type Branch,
   type Membership,
   type OutputView,
   type Plan,
@@ -144,6 +145,13 @@ function check(line: number, c: Membership): string {
   return `Ya se ejecutó la línea ${line}, que comprobó ${c.cond}: ${subject} ${c.container}, así que da ${c.result ? "True" : "False"} y ${then}.`;
 }
 
+function branch(line: number, b: Branch): string {
+  const then = b.loop
+    ? (b.result ? "Python ejecuta el cuerpo del bucle" : "Python sale del bucle")
+    : (b.result ? "Python entra en ese bloque" : "Python se salta ese bloque");
+  return `Ya se ejecutó la línea ${line}, que comprobó ${b.cond ?? "su condición"}, así que da ${b.result ? "True" : "False"} y ${then}.`;
+}
+
 function nowText(now: VarView[]): string {
   return join(now.map((v) => `${v.name} ahora ${codeLike(v.value) ? "vale" : "es"} ${value(v.value)}`));
 }
@@ -215,6 +223,7 @@ function leadText(lead: Lead, tail: Tail): string {
     case "ran":
       if (lead.items !== undefined) return `Ya se ejecutó la línea ${lead.line}: ${items(lead.items)}.`;
       if (lead.check !== undefined) return check(lead.line, lead.check);
+      if (lead.branch !== undefined) return branch(lead.line, lead.branch);
       if (hasChanges(lead.changes)) return `Ya se ejecutó la línea ${lead.line}: ${changes(lead.changes)}.`;
       return tail.kind === "next" ? `Ya se ejecutó la línea ${lead.line}, pero no cambió ninguna variable.` : "";
     case "returned": {

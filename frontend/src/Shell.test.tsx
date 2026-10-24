@@ -42,7 +42,13 @@ async function noAxeViolations() {
 describe("app shell", () => {
   it("opens on the home page with links to the problems and the playground", async () => {
     render(<App />);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/CodeLens/);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Watch your code run, one step at a time.");
+    // One obvious first step, and how the app works in three steps.
+    expect(screen.getByRole("link", { name: "Start with Two Sum" }).getAttribute("href")).toBe("#/problems/two-sum");
+    expect(screen.getByRole("link", { name: "Browse all problems" }).getAttribute("href")).toBe("#/problems");
+    const how = screen.getByRole("list", { name: "How CodeLens works" });
+    expect(how.querySelectorAll(":scope > li")).toHaveLength(3);
+    expect(document.body.textContent).not.toMatch(/side by side/i); // old copy
     const links = nav().querySelectorAll("a");
     expect([...links].map((a) => a.textContent)).toEqual(["Home", "Problems", "Your code", "My sessions"]);
     expect(nav().querySelector('[aria-current="page"]')?.textContent).toBe("Home");
@@ -75,18 +81,23 @@ describe("app shell", () => {
     expect(document.title).toBe("Two Sum · CodeLens");
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("1. Two Sum");
     expect(document.body.textContent).toMatch(/return the indices of the two/i);
-    expect(document.body.textContent).toMatch(/class Solution:\s*def twoSum\(self, nums: List\[int\], target: int\) -> List\[int\]:/);
+    expect((screen.getByRole("textbox", { name: /your solution/i }) as HTMLTextAreaElement).value).toMatch(
+      /^class Solution:\s*def twoSum\(self, nums: List\[int\], target: int\) -> List\[int\]:/,
+    );
+    // Examples with their answers, LeetCode-style, instead of a second copy of the stub.
+    const examples = screen.getByRole("list", { name: "Examples" });
+    expect(examples.querySelectorAll(":scope > li")[0]!.textContent).toMatch(/Input: nums = \[3, 8, 5, 1\], target = 6\s*Output: \[2, 3\]/);
     await noAxeViolations();
   });
 
-  it("lets the keyboard reach the signature box, which scrolls sideways on a phone (found by axe)", async () => {
+  it("lets the keyboard reach each example box, which scrolls sideways on a phone (found by axe)", async () => {
     render(<App />);
     await go("Problems");
     await go(/^1971\. Find if Path Exists/);
-    const box = document.querySelector("pre.signature")!;
+    const box = document.querySelector("pre.example-io")!;
     expect(box.getAttribute("tabindex")).toBe("0");
     expect(box.getAttribute("role")).toBe("group");
-    expect(box.getAttribute("aria-label")).toMatch(/solution/i);
+    expect(box.getAttribute("aria-label")).toBe("Example 1");
   });
 
   it("shows a friendly not-found page for an unknown problem", async () => {
@@ -109,7 +120,7 @@ describe("app shell", () => {
     await go("Your code");
     expect(window.location.hash).toBe("#/playground");
     expect(document.title).toBe("Your code · CodeLens");
-    expect(screen.getByRole("button", { name: /^visualize$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^run$/i })).toBeTruthy();
     expect(screen.getByRole("slider")).toBeTruthy();
   });
 });

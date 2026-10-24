@@ -387,10 +387,16 @@ const isScalar = (v: JsonValue) => ["primitive", "placeholder"].includes(kindOf(
 export function stepChanges(step: TraceStep, prev: TraceStep | undefined): StepChange[] {
   const out: StepChange[] = [];
   const heap = step.heap ?? {};
-  if (!prev) {
+  // The first step of a call (or its first line, right after the call
+  // event): name the call and the arguments it got.
+  if (!prev || (prev.event === "call" && prev.frameId === step.frameId)) {
     if (step.functionName !== "<module>") {
       const t = `${step.functionName}() was called`;
       out.push({ shown: t, spoken: t });
+      for (const [name, value] of Object.entries(step.locals)) {
+        if (isHiddenValue(value)) continue;
+        out.push({ shown: `${name} = ${formatValue(value, heap)}`, spoken: `${name} is ${formatValue(value, heap)}` });
+      }
     }
     return out;
   }

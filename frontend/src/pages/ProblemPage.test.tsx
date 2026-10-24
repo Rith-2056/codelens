@@ -85,7 +85,7 @@ describe("problem page layout", () => {
     render(<ProblemPage problem={twoSum} />);
     expect(panelNames()).toEqual(["1. Two Sum", "Your solution", "Test your solution", "Step through"]);
     const steps = screen.getByRole("region", { name: "Step through" });
-    expect(steps.textContent).toMatch(/Run or Submit your solution to step through it here\./);
+    expect(steps.textContent).toMatch(/Step through the run here, or open the Code Visualizer/); // the 3-step guide until a run exists
   });
 
   it("after a run, the code panel shows the run's code and follows the steps", async () => {
@@ -161,11 +161,43 @@ describe("Code Visualizer from the problem page", () => {
     await run();
     const panel = screen.getByRole("region", { name: "Step through" });
     expect(within(panel).getByRole("group", { name: "Execution controls" })).toBeTruthy();
-    expect(within(panel).getByText("Nothing changed on this step.")).toBeTruthy(); // step 1: about to start
+    expect(within(panel).getByRole("list", { name: "What changed" }).textContent).toMatch(/twoSum\(\) was called/); // the run opens inside the method
     const seenAdded = fixture.trace.steps.findIndex((s, k) => k > 0 && "seen" in s.locals && !("seen" in fixture.trace.steps[k - 1]!.locals));
     fireEvent.change(within(panel).getByRole("slider", { name: "Step" }), { target: { value: String(seenAdded) } });
     expect(within(panel).getByRole("list", { name: "What changed" }).textContent).toMatch(/seen: new dict/);
     expect(panel.querySelector("table.vars")).toBeNull(); // the details live in the visualizer
+  });
+});
+
+describe("first-time clarity", () => {
+  it("before any run, the Step through panel says how the page works, in three steps", () => {
+    render(<ProblemPage problem={twoSum} />);
+    const steps = screen.getByRole("region", { name: "Step through" });
+    expect(within(steps).getByRole("list", { name: "How to use this page" }).querySelectorAll(":scope > li")).toHaveLength(3);
+  });
+
+  it("Run and Submit sit at the top of the tests panel, with one line on how they differ", () => {
+    render(<ProblemPage problem={twoSum} />);
+    const tests = screen.getByRole("region", { name: "Test your solution" });
+    const head = tests.querySelector(".panel-head")!;
+    expect(within(head as HTMLElement).getByRole("button", { name: /^run$/i })).toBeTruthy();
+    expect(within(head as HTMLElement).getByRole("button", { name: /^submit$/i })).toBeTruthy();
+    expect(tests.textContent).toMatch(/Run checks the selected example\. Submit also tries hundreds of small inputs to find one that breaks your code\./);
+  });
+
+  it("brings the result into view when it arrives (the panel can be short)", async () => {
+    const seen: Element[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      seen.push(this);
+    };
+    try {
+      render(<ProblemPage problem={twoSum} />);
+      await run();
+      expect(seen).toContain(screen.getByRole("status", { name: "Result" }));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 });
 

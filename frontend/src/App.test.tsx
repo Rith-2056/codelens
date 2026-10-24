@@ -97,7 +97,7 @@ async function visualize(code: string, result: TraceResult) {
   fireEvent.click(screen.getByRole("button", { name: /edit code/i }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: code } });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: /^visualize$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
   });
 }
 
