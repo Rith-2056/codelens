@@ -154,7 +154,7 @@ Decisions (2026-10-24):
 |---|---|---|
 | 7 | Swap Claude for Gemini in `/api/explain` | done |
 | 8 | Pages and navigation, glassy iOS-style UI | done |
-| 9 | LeetCode problems with reference solutions | todo |
+| 9 | LeetCode problems with reference solutions | 9a done (Python); 9b UI todo |
 | 10 | Counterexample search in Pyodide | todo |
 | 11 | Three-level AI help (hint, explanation, possible fix) | todo |
 | 12 | Mistake categories and saved sessions | todo |
@@ -215,3 +215,34 @@ Decisions (2026-10-24):
   or leaderboards". New features 12-17 are listed.
 - **Checks:** all green (194 pytest, 111 node tests, 68 vitest, typecheck,
   build, bundle size).
+
+### Stage 9a: practice harness (Python)
+- **Tests written first** (`tests/test_practice.py`, 17 tests), run red (no
+  `practice` module), then made green:
+  - the six problems' data and reference files; slugs and method names match
+    `frontend/src/problems.ts`
+  - every reference solution gives every expected answer (our own examples,
+    worked out by hand)
+  - the visible driver appended after the student's code; tree inputs built
+    from level-order lists
+  - the hidden prelude: never a prelude line in the trace, its names never in
+    locals, its `TreeNode`s visible in the heap
+  - `Solution.method` runs as its own frame (depth 1, stack of 2)
+  - LeetCode annotations (`List[int]`) and `deque` work without imports
+  - errors are results, not crashes (IndexError, missing method, no class); a
+    runaway loop stops at the line budget
+  - answer rules: Two Sum in any order, Two Sum II smaller first, real bools
+    and ints only, never calling a student `__eq__`
+  - reference fixtures match fresh traces
+- **Test fix, stated:** I first expected only `TreeNode` in the heap, but the
+  `Solution` object is correctly there too (`self` inside the method). The UI
+  will hide a field-less `self`.
+- **Bug found by testing:** a submission with no `class Solution` raised
+  `KeyError`; it now reports `NameError` like Python would.
+- **Code:**
+  - `tracer.trace(source, prelude=...)` runs the prelude untraced and hides its
+    names (identity check)
+  - `frontend/src/py/practice.py`: program, trace, run, compare
+  - `shared/practice/`: `problems.json` and six reference solutions
+  - `gen_fixtures.py` writes and checks `shared/fixtures/practice/*.json`
+- **Checks:** all green (211 pytest).

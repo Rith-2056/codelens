@@ -23,11 +23,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import practice  # noqa: E402
 import tracer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "shared" / "fixtures"
 CONTRACT = ROOT / "frontend" / "src" / "types" / "trace.ts"
+# Reference solutions traced on each problem's first example: {program, trace}.
+PRACTICE_FIXTURES = FIXTURES / "practice"
 
 LESSONS = {
     "loop": "numbers = [3, 1, 2]\ntotal = 0\nfor n in numbers:\n    total += n\n",
@@ -156,6 +159,39 @@ def render(result: dict) -> str:
     return json.dumps(ordered, separators=(",", ":"), ensure_ascii=False) + "\n"
 
 
+def practice_results() -> dict:
+    """Each problem's reference solution traced on its first example."""
+    out = {}
+    for slug, p in practice.load_problems().items():
+        ref = practice.reference_source(slug)
+        args = p["examples"][0]["args"]
+        out[slug] = {"program": practice.program(slug, ref, args), "trace": practice.trace_example(slug, ref, args)}
+    return out
+
+
+def render_practice(entry: dict) -> str:
+    trace = json.loads(render(entry["trace"]))
+    return json.dumps({"program": entry["program"], "trace": trace}, separators=(",", ":"), ensure_ascii=False) + "\n"
+
+
+def write_practice(entries: dict) -> None:
+    PRACTICE_FIXTURES.mkdir(exist_ok=True)
+    for slug, entry in entries.items():
+        path = PRACTICE_FIXTURES / f"{slug}.json"
+        path.write_text(render_practice(entry), encoding="utf-8")
+        print(f"wrote {path}")
+
+
+def check_practice(entries: dict) -> list[str]:
+    bad = []
+    for slug, entry in entries.items():
+        path = PRACTICE_FIXTURES / f"{slug}.json"
+        on_disk = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+        if on_disk != entry:
+            bad.append(f"practice/{slug}")
+    return bad
+
+
 def required_fields(type_name: str) -> list[str]:
     """Non-optional field names of `type_name` in the frozen contract."""
     text = CONTRACT.read_text(encoding="utf-8")
@@ -170,6 +206,8 @@ def write_all() -> int:
     result_fields = required_fields("TraceResult")
     step_fields = required_fields("TraceStep")
     results = {name: tracer.trace(source) for name, source in LESSONS.items()}
+    practiced = practice_results()
+    results.update({f"practice/{slug}": e["trace"] for slug, e in practiced.items()})
     problems = []
     for name, result in results.items():
         missing = [f for f in result_fields if f not in result]
@@ -186,9 +224,12 @@ def write_all() -> int:
         )
         return 1
     for name, result in results.items():
+        if name.startswith("practice/"):
+            continue
         path = FIXTURES / f"{name}.json"
         path.write_text(render(result), encoding="utf-8")
         print(f"wrote {path}")
+    write_practice(practiced)
     return 0
 
 
@@ -207,6 +248,11 @@ def main(argv: list[str]) -> int:
             continue
         path.write_text(render(expected), encoding="utf-8")
         print(f"wrote {path}")
+    practiced = practice_results()
+    if check:
+        bad += check_practice(practiced)
+    else:
+        write_practice(practiced)
     if bad:
         print(f"fixtures out of date: {', '.join(bad)}", file=sys.stderr)
         return 1

@@ -75,6 +75,7 @@ EVENT_RETURN = "return"
 EVENT_EXCEPTION = "exception"
 
 USER_FILENAME = "codelens_user.py"
+PRELUDE_FILENAME = "codelens_prelude.py"
 MODULE_FUNCTION_NAME = "<module>"
 MODULE_FRAME_ID = "module"
 
@@ -450,7 +451,7 @@ def snapshot_with_heap(values: dict):
     return out, heap, snap.cut
 
 
-def _locals_snapshot(frame, snap: _Snap, want_types: bool):
+def _locals_snapshot(frame, snap: _Snap, want_types: bool, hidden=None):
     """Snapshot a frame's locals. Returns ``(locals, type_names)``.
 
     Drops dunder names, compiler-internal names such as ``.0``, and non-``str``
@@ -467,6 +468,10 @@ def _locals_snapshot(frame, snap: _Snap, want_types: bool):
     value = snap.value
     for name, v in list(f_locals.items()):
         if type(name) is not str or name.startswith("__") or name.startswith("."):
+            continue
+        # A prelude's names stay hidden while they hold the very same object
+        # (an identity check, so no student code runs).
+        if hidden and name in hidden and hidden[name] is v:
             continue
         out[name] = value(v)
         if want_types:
@@ -811,6 +816,8 @@ class _Tracer:
         self.writer = _CappedWriter()
         # Latest exception seen, for the terminal exception step.
         self.exc: dict | None = None
+        # Names a prelude defined, hidden from locals (see trace(prelude=...)).
+        self.hidden: dict = {}
         self._tool_id = None
         self._tf = self.tracefn
 
@@ -963,10 +970,10 @@ class _Tracer:
         last = len(chain) - 1
         for i, (f, st) in enumerate(chain):
             if i == last:
-                loc, types = _locals_snapshot(f, snap, True)
+                loc, types = _locals_snapshot(f, snap, True, self.hidden)
                 fl = loc
             else:
-                fl, _ = _locals_snapshot(f, snap, False)
+                fl, _ = _locals_snapshot(f, snap, False, self.hidden)
             stack.append({
                 "functionName": st["functionName"],
                 "frameId": st["frameId"],
@@ -1158,8 +1165,14 @@ def _compile_error_result(err, h: str, n_lines: int) -> dict:
     }
 
 
-def trace(source: str) -> dict:
-    """Run ``source`` under the tracer and return a TraceResult dict."""
+def trace(source: str, prelude: str | None = None) -> dict:
+    """Run ``source`` under the tracer and return a TraceResult dict.
+
+    ``prelude`` (our own code, e.g. typing names and TreeNode for practice
+    problems) runs first in the same namespace, untraced: it is compiled under
+    PRELUDE_FILENAME, so its frames are never recorded, and the names it
+    defines are hidden from every step's locals.
+    """
     h = code_hash(source)
     n_lines = _line_count(source)
 
@@ -1181,6 +1194,9 @@ def trace(source: str) -> dict:
         sys.stdout = tracer.writer
         builtins.input = _input_stub
         ns = {"__name__": "__main__", "__builtins__": builtins}
+        if prelude:
+            exec(compile(prelude, PRELUDE_FILENAME, "exec"), ns)
+            tracer.hidden = {k: v for k, v in ns.items() if not k.startswith("__")}
         sys.settrace(tracer.tracefn)
         try:
             exec(code, ns)
@@ -1224,6 +1240,6 @@ def trace(source: str) -> dict:
     return result
 
 
-def trace_json(source: str) -> str:
+def trace_json(source: str, prelude: str | None = None) -> str:
     """Run ``source`` and return the TraceResult as compact JSON."""
-    return _to_json(trace(source))
+    return _to_json(trace(source, prelude))
