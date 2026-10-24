@@ -1,4 +1,5 @@
-// Tiny hash router: #/ (home), #/problems, #/problems/<slug>, #/playground.
+// Tiny hash router: #/ (home), #/problems, #/problems/<slug>, #/playground,
+// #/sessions.
 // Hash URLs work on any static host with no server rewrites, and a link to a
 // problem page can be shared or bookmarked.
 import { useEffect, useState } from "react";
@@ -8,6 +9,7 @@ export type Route =
   | { page: "problems" }
   | { page: "problem"; slug: string }
   | { page: "playground" }
+  | { page: "sessions" }
   | { page: "notFound"; path: string };
 
 export function parseRoute(hash: string): Route {
@@ -17,6 +19,7 @@ export function parseRoute(hash: string): Route {
   if (parts[0] === "problems" && parts.length === 1) return { page: "problems" };
   if (parts[0] === "problems" && parts.length === 2) return { page: "problem", slug: parts[1]! };
   if (parts[0] === "playground" && parts.length === 1) return { page: "playground" };
+  if (parts[0] === "sessions" && parts.length === 1) return { page: "sessions" };
   return { page: "notFound", path };
 }
 
@@ -30,6 +33,8 @@ export function hrefFor(route: Route): string {
       return `#/problems/${route.slug}`;
     case "playground":
       return "#/playground";
+    case "sessions":
+      return "#/sessions";
     case "notFound":
       return `#${route.path}`;
   }

@@ -44,7 +44,7 @@ describe("app shell", () => {
     render(<App />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/CodeLens/);
     const links = nav().querySelectorAll("a");
-    expect([...links].map((a) => a.textContent)).toEqual(["Home", "Problems", "Your code"]);
+    expect([...links].map((a) => a.textContent)).toEqual(["Home", "Problems", "Your code", "My sessions"]);
     expect(nav().querySelector('[aria-current="page"]')?.textContent).toBe("Home");
     await noAxeViolations();
   });

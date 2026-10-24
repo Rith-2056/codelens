@@ -1469,3 +1469,63 @@ a {
   font-size: 0.85rem;
   color: var(--muted);
 }
+
+/* Likely mistake note and the sessions page */
+.mistake-note {
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--warn-bg);
+  border-left: 4px solid var(--warn-edge);
+}
+
+.mistake-summary {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.session-list {
+  list-style: none;
+  margin: 16px 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.session {
+  padding: 14px 18px;
+  border-radius: 18px;
+}
+
+.session-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+}
+
+.session-head a {
+  font-weight: 650;
+}
+
+.session-ok {
+  font-weight: 700;
+  color: var(--easy);
+}
+
+.session-wrong {
+  font-weight: 700;
+  color: var(--hard);
+}
+
+.session-head time {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.session-detail {
+  margin: 6px 0 10px;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}

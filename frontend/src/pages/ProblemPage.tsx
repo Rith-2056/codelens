@@ -13,6 +13,8 @@ import {
   type Message,
 } from "../components/practiceView";
 import { formatValue } from "../components/values";
+import { MISTAKES, classifyMistake } from "../components/mistakes";
+import { addSession, takePendingCode } from "../sessions";
 import { scrollBox } from "../components/scrollBox";
 import type { Problem } from "../problems";
 import { checkPractice, findCounterexample, preloadTracer, tracePractice } from "../worker/traceClient";
@@ -49,7 +51,7 @@ let runCounter = 0;
 // The correct solution's run shows next to yours only when you ask.
 export default function ProblemPage({ problem }: { problem: Problem }) {
   const [lang, setLang] = useState<Lang>("en");
-  const [code, setCode] = useState(() => starterCode(problem));
+  const [code, setCode] = useState(() => takePendingCode(problem.slug) ?? starterCode(problem));
   const [selected, setSelected] = useState<Selected>({ kind: "example", index: 0 });
   const [failing, setFailing] = useState<JsonValue[] | null>(null);
   const [running, setRunning] = useState(false);
@@ -113,6 +115,25 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
     }
   }
 
+  function mistakeOf(input: JsonValue[], check: CheckResult) {
+    return classifyMistake({ slug: problem.slug, args: input, got: check.got, expected: check.expected, error: check.error, code });
+  }
+
+  /** Every Submit is saved in this browser (see sessions.ts). */
+  function saveWrong(input: JsonValue[], check: CheckResult) {
+    addSession({
+      slug: problem.slug,
+      title: problem.title,
+      code,
+      outcome: "wrong",
+      input: formatInput(problem.params, input),
+      got: check.error ? null : formatValue(check.got),
+      expected: formatValue(check.expected),
+      error: check.error,
+      category: mistakeOf(input, check),
+    });
+  }
+
   async function submit() {
     if (running) return;
     const ticket = begin();
@@ -124,6 +145,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
         setSelected({ kind: "failing" });
         setMessage(counterexampleMessage(problem.params, { ...search, correct: false }));
         setFailure({ args: search.args, check: { ...search, correct: false }, id: ticket });
+        saveWrong(search.args, { ...search, correct: false });
         await traceMine(ticket, search.args);
         return;
       }
@@ -134,10 +156,22 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
         setSelected({ kind: "example", index: bad });
         setMessage(resultMessage(checks[bad]!));
         setFailure({ args: problem.examples[bad]!.args, check: checks[bad]!, id: ticket });
+        saveWrong(problem.examples[bad]!.args, checks[bad]!);
         await traceMine(ticket, problem.examples[bad]!.args);
         return;
       }
       setMessage(passedMessage(search, problem.examples.length));
+      addSession({
+        slug: problem.slug,
+        title: problem.title,
+        code,
+        outcome: "accepted",
+        input: `${search.tried} small inputs and ${problem.examples.length} examples`,
+        got: null,
+        expected: null,
+        error: null,
+        category: null,
+      });
     } catch (err) {
       failed(ticket, err);
     } finally {
@@ -250,6 +284,12 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
             <div className={`run-status tone-${message.tone}`} role="status" aria-label="Result">
               {message.text}
             </div>
+          )}
+          {failure && (
+            <p className="mistake-note" role="note" aria-label="Likely mistake">
+              <strong>Likely mistake: {MISTAKES[mistakeOf(failure.args, failure.check)].label}.</strong>{" "}
+              {MISTAKES[mistakeOf(failure.args, failure.check)].tip}
+            </p>
           )}
         </section>
       </div>

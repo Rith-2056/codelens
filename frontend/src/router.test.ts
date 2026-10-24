@@ -11,6 +11,7 @@ describe("parseRoute", () => {
     expect(parseRoute("#/problems/")).toEqual({ page: "problems" });
     expect(parseRoute("#/problems/two-sum")).toEqual({ page: "problem", slug: "two-sum" });
     expect(parseRoute("#/playground")).toEqual({ page: "playground" });
+    expect(parseRoute("#/sessions")).toEqual({ page: "sessions" });
   });
 
   it("treats anything else as not found, keeping the path", () => {
@@ -26,6 +27,7 @@ describe("hrefFor", () => {
       { page: "problems" },
       { page: "problem", slug: "climbing-stairs" },
       { page: "playground" },
+      { page: "sessions" },
     ];
     for (const r of routes) expect(parseRoute(hrefFor(r))).toEqual(r);
   });

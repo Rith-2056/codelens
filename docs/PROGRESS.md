@@ -157,7 +157,7 @@ Decisions (2026-10-24):
 | 9 | LeetCode problems with reference solutions | done |
 | 10 | Counterexample search in Pyodide | done |
 | 11 | Three-level AI help (hint, explanation, possible fix) | done (live Gemini wording checked in stage 13) |
-| 12 | Mistake categories and saved sessions | todo |
+| 12 | Mistake categories and saved sessions | done |
 | 13 | Live Gemini test | paused: needs your Gemini key |
 
 ### Stage 7: Claude → Gemini
@@ -405,4 +405,36 @@ Decisions (2026-10-24):
   `n = 2`, and all three built-in help levels appear in order; axe finds 0
   violations.
 - **Checks:** all green (238 pytest, 129 node tests, 105 vitest, typecheck,
+  build, bundle size).
+
+### Stage 12: mistake categories and saved sessions
+- **Tests written first** (all red at first):
+  - `mistakes.test.ts` (11): the planted bugs from stage 10 with their real
+    counterexamples, each labeled:
+    - off-by-one: `range(2, n)`, 0-based positions, counting edges, an
+      IndexError, `<` vs `<=`
+    - incorrect pointer variables: one element used twice
+    - missed edge case: a crash on a one-item list or an empty tree
+    - loop never ends
+    - logic mistake for the rest
+  - `sessions.test.ts` (5): newest first, capped at 200, survives junk or
+    missing or throwing storage, clear, counts by category
+  - `ProblemPage.test.tsx` (+3): "Likely mistake" note; Submit saves wrong and
+    accepted attempts; Run does not save
+  - `SessionsPage.test.tsx` (5): empty state that says data stays in this
+    browser; list and per-kind counts; "Open in editor" loads the saved code;
+    clear after confirming; axe
+  - `router.test.ts`: the `#/sessions` route
+  - `Shell.test.tsx`: the nav now has 4 links (test updated for the new page)
+- **Code:**
+  - `components/mistakes.ts`: deterministic rules, using the answers, the
+    input, and loop bounds compared with the reference solution
+  - `sessions.ts`: browser storage only, never throws
+  - `pages/SessionsPage.tsx`, the "My sessions" nav link, the "Likely
+    mistake" note on the problem page
+- **Real browser + Pyodide:** three real buggy submissions were found,
+  labeled (off-by-one, incorrect pointer variables, off-by-one) and saved; My
+  sessions showed "Off-by-one error: 2, Incorrect pointer variables: 1"; axe
+  found 0 violations. The test sessions were then removed from the browser.
+- **Checks:** all green (238 pytest, 129 node tests, 129 vitest, typecheck,
   build, bundle size).

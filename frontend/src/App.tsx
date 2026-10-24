@@ -4,6 +4,7 @@ import NotFound from "./pages/NotFound";
 import Playground from "./pages/Playground";
 import ProblemList from "./pages/ProblemList";
 import ProblemPage from "./pages/ProblemPage";
+import SessionsPage from "./pages/SessionsPage";
 import { problemBySlug } from "./problems";
 import { hrefFor, useRoute, type Route } from "./router";
 import "./styles.css";
@@ -12,6 +13,7 @@ const NAV: { label: string; route: Route }[] = [
   { label: "Home", route: { page: "home" } },
   { label: "Problems", route: { page: "problems" } },
   { label: "Your code", route: { page: "playground" } },
+  { label: "My sessions", route: { page: "sessions" } },
 ];
 
 /** Which nav entry is current: a problem page belongs to "Problems". */
@@ -31,6 +33,8 @@ function titleFor(route: Route): string {
     }
     case "playground":
       return "Your code · CodeLens";
+    case "sessions":
+      return "My sessions · CodeLens";
     case "notFound":
       return "Not found · CodeLens";
   }
@@ -60,6 +64,7 @@ export default function App() {
     const p = problemBySlug(route.slug);
     page = p ? <ProblemPage key={p.slug} problem={p} /> : <NotFound kind="problem" />;
   } else if (route.page === "playground") page = <Playground />;
+  else if (route.page === "sessions") page = <SessionsPage />;
   else page = <NotFound kind="page" />;
 
   return (

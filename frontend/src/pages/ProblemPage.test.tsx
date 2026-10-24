@@ -354,4 +354,52 @@ describe("problem page", () => {
       });
     });
   });
+
+  describe("mistake categories and saved sessions", () => {
+    beforeEach(() => window.localStorage.clear());
+    const saved = () => JSON.parse(window.localStorage.getItem("codelens.sessions.v1") ?? "[]") as Record<string, unknown>[];
+
+    it("names the likely kind of mistake next to a wrong answer", async () => {
+      checkPractice.mockResolvedValue({ correct: false, got: [0, 0], expected: [2, 3], error: null });
+      render(<ProblemPage problem={twoSum} />);
+      await run();
+      const note = screen.getByRole("note", { name: "Likely mistake" });
+      expect(note.textContent).toMatch(/^Likely mistake: Incorrect pointer variables\./);
+      expect(note.textContent).toMatch(/pointer or index starts/);
+    });
+
+    it("saves each Submit in this browser, with the failing input and the category", async () => {
+      findCounterexample.mockResolvedValue({ found: true, args: [[0, 0], 0], got: [0, 0], expected: [0, 1], error: null, tried: 3 });
+      render(<ProblemPage problem={twoSum} />);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+      });
+      await screen.findByRole("status", { name: "Result" });
+      expect(saved()).toHaveLength(1);
+      expect(saved()[0]).toMatchObject({
+        slug: "two-sum",
+        title: "Two Sum",
+        outcome: "wrong",
+        input: "nums = [0, 0], target = 0",
+        got: "[0, 0]",
+        expected: "[0, 1]",
+        category: "pointer",
+        code: editor().value,
+      });
+    });
+
+    it("saves an accepted Submit too, but not a plain Run", async () => {
+      findCounterexample.mockResolvedValue({ found: false, tried: 423, complete: true });
+      checkPractice.mockResolvedValue({ correct: true, got: [0, 1], expected: [0, 1], error: null });
+      render(<ProblemPage problem={twoSum} />);
+      await run();
+      expect(saved()).toHaveLength(0);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+      });
+      await screen.findByText(/^Accepted/);
+      expect(saved()).toHaveLength(1);
+      expect(saved()[0]).toMatchObject({ outcome: "accepted", category: null });
+    });
+  });
 });
