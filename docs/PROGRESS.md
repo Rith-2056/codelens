@@ -153,7 +153,7 @@ Decisions (2026-10-24):
 | Stage | Goal | Status |
 |---|---|---|
 | 7 | Swap Claude for Gemini in `/api/explain` | done |
-| 8 | Pages and navigation, glassy iOS-style UI | todo |
+| 8 | Pages and navigation, glassy iOS-style UI | done |
 | 9 | LeetCode problems with reference solutions | todo |
 | 10 | Counterexample search in Pyodide | todo |
 | 11 | Three-level AI help (hint, explanation, possible fix) | todo |
@@ -180,3 +180,38 @@ Decisions (2026-10-24):
   with no cast.
 - **Checks:** all green (33 API tests). The live call is untested until a key
   is set (stage 13).
+
+### Stage 8: pages, navigation, glassy iOS-style look
+- **Tests written first** (`router.test.ts`, `problems.test.ts`,
+  `Shell.test.tsx`), run red (modules missing), then made green:
+  - hash routes `#/`, `#/problems`, `#/problems/<slug>`, `#/playground`, and
+    not-found, round-tripping
+  - the six problems with LeetCode's exact names, numbers, slugs, difficulty
+    and `class Solution` signatures; statements in English and Spanish
+  - shell: a nav labeled "Main" with Home / Problems / Your code;
+    `aria-current="page"`; page titles; focus moves to the new page's `h1`;
+    problem page with statement and signature; friendly not-found; the
+    playground keeps the visualizer; axe on every page
+- **Test fixes, stated:**
+  - In jsdom the hash changes a moment after a click, so the helper waits for
+    the browser's own `hashchange`.
+  - Setup uses `history.replaceState` so a late `hashchange` can't leak into
+    the next test.
+  - The playground acceptance tests now start at `#/playground`.
+- **Look:** frosted glass panels and header (`backdrop-filter`) over a soft
+  gradient, pill buttons and nav, SF system font, light and dark. It falls back
+  to solid panels for reduced transparency, forced colors, and browsers
+  without blur. On narrow screens the header becomes a rounded card.
+- **Contrast:** axe can't measure text on glass over a gradient, so
+  `theme.test.ts` computes WCAG contrast for every text color against every
+  gradient stop, on the page and through glass, in light and dark (16 checks).
+  A mutation check proved it fails on a low-contrast color.
+- **Browser sweep** (axe with contrast, 375 px, light and dark, every page):
+  one violation, the signature box was unreachable by keyboard. Red test first,
+  then fixed with `scrollBox`. After the fix: 0 violations and no sideways
+  scroll in either theme.
+- **Docs:** plan and steering now say LeetCode's names with our own words,
+  and the "no online judging" non-goal is replaced by "no hidden tests, scores
+  or leaderboards". New features 12-17 are listed.
+- **Checks:** all green (194 pytest, 111 node tests, 68 vitest, typecheck,
+  build, bundle size).

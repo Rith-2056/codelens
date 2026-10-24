@@ -2,6 +2,7 @@
 // tracer (CPython) once, and hand the results to the tests via `inject`.
 // Kept outside src/ so the app's tsconfig never needs Node's types.
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -31,4 +32,6 @@ export default function setup({ provide }) {
   });
   provide("traces", JSON.parse(json));
   provide("programs", PROGRAMS);
+  // Vitest blanks CSS imports (even ?raw), so tests that read the stylesheet get it here.
+  provide("stylesCss", readFileSync(new URL("../src/styles.css", import.meta.url), "utf8"));
 }

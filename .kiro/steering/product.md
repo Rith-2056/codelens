@@ -29,8 +29,11 @@ plain-language explanation grounded only in the real execution trace.
   (contains-duplicate style), two pointers on a sorted array, BFS on a graph
   (adjacency dict, deque queue, visited set), max depth of a binary tree
   (recursion plus `TreeNode`), climbing stairs as 1D DP.
-- Lesson titles and problem statements are our own plain-language writing; see
-  the table in `docs/plan.md`.
+- Practice problems use LeetCode's real names, numbers and `class Solution`
+  signatures; problem statements and examples are our own words (see
+  `frontend/src/problems.ts`).
+- Pages: home, the problem list, one page per problem (your solution next to a
+  correct one), and a playground for any Python program.
 
 ## MVP features
 1. Editor: syntax-highlighted Python with the three Level 1 lessons (loop,
@@ -62,8 +65,9 @@ DLCS standards, simple recursion call-stack view (stop by 4 PM).
 ## Non-goals
 No accounts, database, analytics, grading storage, multiplayer, package
 installation, file access, or server-side code execution. No linked lists,
-heaps, tries, or union-find. No online judging: no hidden test cases and no
-pass/fail verdicts on submitted solutions.
+heaps, tries, or union-find. No hidden test suites, scores, or leaderboards:
+when CodeLens says a solution is wrong it always shows the input that proves
+it. Saved sessions stay in the student's own browser.
 
 ## Definition of done (by 7:30 PM; submissions lock 8:00 PM)
 - Public deployed URL that works with no account

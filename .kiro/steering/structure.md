@@ -10,7 +10,10 @@ codelens/
   frontend/src/worker/trace.worker.ts  traceClient.ts
   frontend/src/py/tracer.py  gen_fixtures.py
   frontend/src/types/trace.ts      (FROZEN contract)
-  frontend/src/lessons.ts          (Level 1 + Level 2 lessons)
+  frontend/src/App.tsx  router.ts  (app shell and hash routes)
+  frontend/src/pages/              (Home, ProblemList, ProblemPage, Playground)
+  frontend/src/problems.ts         (the LeetCode practice problems)
+  frontend/src/lessons.ts          (playground examples)
   frontend/src/explain/            (deterministic templates, en + es; client.ts)
   api/explain.ts
   shared/fixtures/*.json           (precomputed traces, one per lesson)
@@ -57,8 +60,9 @@ imports it read-only.
 - Lesson sources exist in two places that must match byte for byte (the
   fixture `codeHash` depends on it): `frontend/src/lessons.ts` (ui-builder)
   and `frontend/src/py/gen_fixtures.py` (trace-engineer). Change both together.
-- Lesson titles and problem statements are written by us; never copy them from
-  LeetCode or other sites.
+- Practice problems use LeetCode's real titles, numbers and method signatures;
+  problem statements and examples are written by us. Never copy LeetCode's
+  problem text or examples.
 - `.kiro` lives at the repo root and must never be added to `.gitignore`.
 - No server-side execution of student code; Python only runs client-side in the
   Web Worker.

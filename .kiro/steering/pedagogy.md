@@ -20,14 +20,21 @@ the experience usable for the target learners.
   drain, and the call stack grow and shrink.
 - Name the pattern in plain words and tie it to what changed on screen ("the
   set remembers every number seen so far").
-- Students run their own solution. CodeLens shows what it did; it never judges
-  it against hidden tests or gives a pass/fail verdict.
+- Students run their own solution. CodeLens checks it against a correct
+  reference and, when it is wrong, finds the smallest input that shows the
+  difference, then shows both runs side by side. There are no hidden test
+  suites, scores, or leaderboards: the student always sees the exact input.
+- Help comes in three levels, and the student chooses when to go further: a
+  gentle hint, then a targeted explanation, then a possible fix. Never jump
+  straight to corrected code.
+- Name the kind of mistake (off-by-one, missed edge case, wrong pointer
+  update, ...) so students learn to recognise their own patterns.
 
-## Our own words only
-- Write every lesson title, problem statement, and example ourselves, in plain
-  language.
-- Never copy problem text, titles, or examples from LeetCode or any other site.
-  Pattern names ("hash map", "two pointers", "BFS") are fine.
+## Names are LeetCode's, words are ours
+- Practice problems use LeetCode's real titles, numbers, and `class Solution`
+  method signatures, so students practise in the format interviews use.
+- Write every problem statement, example, and explanation ourselves, in plain
+  language. Never copy LeetCode's problem text or examples.
 
 ## Predict-then-reveal
 - Before a step that changes a variable, ask the student to predict the new

@@ -29,6 +29,8 @@ vi.mock("./worker/traceClient", () => ({
 import App from "./App";
 
 beforeEach(() => {
+  // The visualizer now lives on its own page (#/playground) since pages were added.
+  window.history.replaceState(null, "", "#/playground");
   runTrace.mockReset();
   // /api/explain is offline: every explanation must come from the templates.
   vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
