@@ -1,0 +1,7 @@
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.hypothesis/
+
+# Note: .kiro/ must stay committed. Never add it here.
