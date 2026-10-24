@@ -1,18 +1,19 @@
 // Tests for /api/explain. Run from the repo root:
 //   node --test api/explain.test.mjs
 // Uses Node's built-in Request/Response; no framework needed.
-// No test calls the real Claude API: every LLM call goes through a fake.
+// No test calls the real Gemini API: every LLM call goes through a fake.
 
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 // Belt and braces: even the default handler must never see a real key here.
+delete process.env.GEMINI_API_KEY;
 delete process.env.ANTHROPIC_API_KEY;
 
 import {
   handler,
   createHandler,
-  anthropicComplete,
+  geminiComplete,
   buildRequest,
   buildUserMessage,
   acceptReply,
@@ -21,7 +22,6 @@ import {
   MAX_CODE_SLICE_CHARS,
   MAX_REPLY_CHARS,
   MODEL,
-  FALLBACK_BETA,
   SYSTEM_PROMPT,
   USE_TEMPLATE,
   cacheKey,
@@ -134,7 +134,7 @@ test("rejects bad shapes with 400", async () => {
 });
 
 test("enforces the payload cap with 413, before any LLM call", async () => {
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   const big = { curr: { ...STEPS[0], stdout: "x".repeat(MAX_PAYLOAD_BYTES) }, lang: "en" };
   const res = await h(req(big));
   assert.equal(res.status, 413);
@@ -142,7 +142,7 @@ test("enforces the payload cap with 413, before any LLM call", async () => {
 });
 
 test("enforces the codeSlice cap with 413, before any LLM call", async () => {
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   const over = await h(req(stepBody({ codeSlice: "x".repeat(MAX_CODE_SLICE_CHARS + 1) })));
   assert.equal(over.status, 413);
   assert.match((await over.json()).error, /codeSlice/);
@@ -169,7 +169,7 @@ test("the default export reads no key in tests and answers with the template", a
 // LLM path.
 
 test("no key: template, and the LLM is never built or called", async () => {
-  const llm = fakeLlm({ text: GOOD, stopReason: "end_turn" });
+  const llm = fakeLlm({ text: GOOD, finished: true });
   let made = 0;
   for (const key of [undefined, "", "   "]) {
     const h = createHandler({
@@ -188,7 +188,7 @@ test("no key: template, and the LLM is never built or called", async () => {
 });
 
 test("a grounded LLM reply is accepted with source llm", async () => {
-  const { h, llm, made } = llmHandler({ text: `  ${GOOD}\n`, stopReason: "end_turn" });
+  const { h, llm, made } = llmHandler({ text: `  ${GOOD}\n`, finished: true });
   const res = await h(req(stepBody()));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { text: GOOD, source: "llm" });
@@ -200,28 +200,26 @@ test("a grounded LLM reply is accepted with source llm", async () => {
 
 test("numbers from the code slice are allowed; invented numbers fall back to the template", async () => {
   // 2 is in the code slice ([3, 1, 2]) and in locals; fine.
-  const ok = await llmHandler({ text: "The list holds 3, 1 and 2, and total is now 3.", stopReason: "end_turn" })
+  const ok = await llmHandler({ text: "The list holds 3, 1 and 2, and total is now 3.", finished: true })
     .h(req(stepBody()));
   assert.equal((await ok.json()).source, "llm");
 
   // 7 is nowhere in the snapshots or code: a future/invented value.
   for (const text of ["total is now 3, and next it will be 7.", "This is step 5 of 11."]) {
-    const res = await llmHandler({ text, stopReason: "end_turn" }).h(req(stepBody()));
+    const res = await llmHandler({ text, finished: true }).h(req(stepBody()));
     assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" }, text);
   }
 });
 
-test("refusal and other non-normal stop reasons fall back to the template", async () => {
-  for (const stopReason of ["refusal", "max_tokens", "pause_turn", "tool_use", null]) {
-    const res = await llmHandler({ text: GOOD, stopReason }).h(req(stepBody()));
-    assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" }, String(stopReason));
-  }
+test("unfinished replies (blocked, failed, cut off) fall back to the template", async () => {
+  const res = await llmHandler({ text: GOOD, finished: false }).h(req(stepBody()));
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" });
 });
 
 test("empty, overlong and USE_TEMPLATE replies fall back to the template", async () => {
   for (const text of ["", "   \n ", "a".repeat(MAX_REPLY_CHARS + 1), USE_TEMPLATE]) {
-    const res = await llmHandler({ text, stopReason: "end_turn" }).h(req(stepBody()));
+    const res = await llmHandler({ text, finished: true }).h(req(stepBody()));
     assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" }, text.slice(0, 20));
   }
 });
@@ -267,7 +265,7 @@ test("API errors fall back to the template without leaking details", async () =>
 });
 
 test("cache: the same step and language calls the LLM once", async () => {
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   const a = await (await h(req(stepBody()))).json();
   const b = await (await h(req(stepBody()))).json();
   assert.deepEqual(a, { text: GOOD, source: "llm" });
@@ -286,7 +284,7 @@ test("cache: the same step and language calls the LLM once", async () => {
 });
 
 test("cache: different snapshots under the same key do not reuse the cached reply", async () => {
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   await h(req(stepBody()));
   const poisoned = await h(req(stepBody({ curr: { ...CURR, locals: { ...CURR.locals, total: 99 } } })));
   assert.equal(llm.calls.length, 2);
@@ -296,7 +294,7 @@ test("cache: different snapshots under the same key do not reuse the cached repl
 
 test("failures are not cached, so a later request can still get an LLM reply", async () => {
   let n = 0;
-  const { h, llm } = llmHandler(() => (n++ === 0 ? { text: "", stopReason: "refusal" } : { text: GOOD, stopReason: "end_turn" }));
+  const { h, llm } = llmHandler(() => (n++ === 0 ? { text: "", finished: false } : { text: GOOD, finished: true }));
   assert.equal((await (await h(req(stepBody()))).json()).source, "template");
   assert.equal((await (await h(req(stepBody()))).json()).source, "llm");
   assert.equal(llm.calls.length, 2);
@@ -304,7 +302,7 @@ test("failures are not cached, so a later request can still get an LLM reply", a
 
 test("rate limit: 429 with the template text once a client's bucket is empty", async () => {
   let now = 0;
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" }, {
+  const { h, llm } = llmHandler({ text: GOOD, finished: true }, {
     rateLimit: { capacity: 2, refillPerSecond: 1, now: () => now },
   });
   const ip = { "x-forwarded-for": "203.0.113.7, 10.0.0.1" };
@@ -365,64 +363,81 @@ test("the system prompt is static and states the rules", () => {
   }
 });
 
-test("the SDK request uses the model, low effort, a modest max_tokens and default refusal fallbacks", () => {
+test("the Gemini request: fast model, system instruction, small output, and nothing stored", () => {
   const body = buildRequest({ system: "S", user: "U" });
-  assert.equal(body.model, "claude-opus-5-5");
-  assert.equal(MODEL, "claude-opus-5-5");
-  assert.deepEqual(body.output_config, { effort: "low" });
-  assert.ok(body.max_tokens > 0 && body.max_tokens <= 2048);
-  assert.deepEqual(body.betas, [FALLBACK_BETA]);
-  assert.equal(FALLBACK_BETA, "server-side-fallback-2026-07-01");
-  assert.equal(body.fallbacks, "default");
-  assert.equal(body.thinking, undefined);
-  assert.equal(body.system, "S");
-  assert.deepEqual(body.messages, [{ role: "user", content: "U" }]);
+  assert.equal(MODEL, "gemini-3.5-flash-lite");
+  assert.equal(body.model, MODEL);
+  assert.equal(body.system_instruction, "S");
+  assert.equal(body.input, "U");
+  assert.equal(body.store, false); // student code must not be kept on Google's side
+  assert.equal(body.stream, undefined);
+  assert.ok(body.generation_config.max_output_tokens > 0 && body.generation_config.max_output_tokens <= 1024);
+  assert.equal(body.generation_config.thinking_level, "minimal");
 });
 
-test("anthropicComplete passes timeout, low retries and the signal, and reads text by block type", async () => {
+test("geminiComplete passes the timeout and abort signal and reads output_text", async () => {
   const seen = [];
   const fakeClient = {
-    beta: {
-      messages: {
-        create: async (body, options) => {
-          seen.push({ body, options });
-          return {
-            stop_reason: "end_turn",
-            content: [
-              { type: "thinking", thinking: "", signature: "x" },
-              { type: "text", text: "partial from the declining model" },
-              { type: "fallback", from: { model: MODEL }, to: { model: "claude-opus-5" } },
-              { type: "text", text: "Hello " },
-              { type: "text", text: "there." },
-            ],
-          };
-        },
+    interactions: {
+      create: async (params, options) => {
+        seen.push({ params, options });
+        return { status: "completed", output_text: "Hello there." };
       },
     },
   };
   const signal = new AbortController().signal;
-  const reply = await anthropicComplete(fakeClient, 5_000)({ system: "S", user: "U" }, signal);
-  assert.deepEqual(reply, { text: "Hello there.", stopReason: "end_turn" });
-  assert.equal(seen[0].options.signal, signal);
-  assert.equal(seen[0].options.timeout, 5_000);
-  assert.ok(seen[0].options.maxRetries <= 1);
-  assert.equal(seen[0].body.model, MODEL);
+  const reply = await geminiComplete(fakeClient, 5_000)({ system: "S", user: "U" }, signal);
+  assert.deepEqual(reply, { text: "Hello there.", finished: true });
+  assert.equal(seen[0].options.timeout_ms, 5_000);
+  assert.equal(seen[0].options.fetch_options.signal, signal);
+  assert.equal(seen[0].params.model, MODEL);
 });
 
-test("anthropicComplete reports refusals so the handler can fall back", async () => {
-  const fakeClient = { beta: { messages: { create: async () => ({ stop_reason: "refusal", content: [] }) } } };
-  const reply = await anthropicComplete(fakeClient)({ system: "S", user: "U" }, new AbortController().signal);
-  assert.deepEqual(reply, { text: "", stopReason: "refusal" });
-  const body = { prev: PREV, curr: CURR, lang: "en", codeSlice: CODE };
-  assert.equal(acceptReply(reply, body), null);
+test("geminiComplete reports unfinished interactions so the handler can fall back", async () => {
+  for (const status of ["incomplete", "failed", "cancelled", "budget_exceeded", "requires_action"]) {
+    const fakeClient = { interactions: { create: async () => ({ status, output_text: "half an ans" }) } };
+    const reply = await geminiComplete(fakeClient)({ system: "S", user: "U" }, new AbortController().signal);
+    assert.equal(reply.finished, false, status);
+    const body = { prev: PREV, curr: CURR, lang: "en", codeSlice: CODE };
+    assert.equal(acceptReply(reply, body), null, status);
+  }
+  const empty = { interactions: { create: async () => ({ status: "completed" }) } };
+  const reply = await geminiComplete(empty)({ system: "S", user: "U" }, new AbortController().signal);
+  assert.deepEqual(reply, { text: "", finished: true });
+});
+
+test("the default key comes from GEMINI_API_KEY, never ANTHROPIC_API_KEY", async () => {
+  const llm = fakeLlm({ text: GOOD, finished: true });
+  const made = [];
+  const h = createHandler({ makeComplete: (key) => (made.push(key), llm.complete) });
+  try {
+    process.env.ANTHROPIC_API_KEY = "anthropic-test-key";
+    let res = await h(req(stepBody()));
+    assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" });
+    assert.equal(llm.calls.length, 0);
+    process.env.GEMINI_API_KEY = "gemini-test-key";
+    res = await h(req(stepBody({ stepIndex: 77 })));
+    assert.equal((await res.json()).source, "llm");
+    assert.deepEqual(made, ["gemini-test-key"]);
+  } finally {
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+  }
+});
+
+test("api/package.json pins the Gemini SDK and no longer ships the Anthropic SDK", async () => {
+  const { readFileSync } = await import("node:fs");
+  const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+  assert.match(pkg.dependencies["@google/genai"] ?? "", /^\d+\.\d+\.\d+$/);
+  assert.equal(pkg.dependencies["@anthropic-ai/sdk"], undefined);
 });
 
 test("the handler logs nothing, even on errors with code in them", async () => {
   // The afterEach console spy asserts nothing was logged; this exercises every path once.
   const secret = 'password = "hunter2"  # student code';
   const body = stepBody({ codeSlice: secret });
-  await llmHandler({ text: GOOD, stopReason: "end_turn" }).h(req(body));
-  await llmHandler({ text: "", stopReason: "refusal" }).h(req(body));
+  await llmHandler({ text: GOOD, finished: true }).h(req(body));
+  await llmHandler({ text: "", finished: false }).h(req(body));
   await llmHandler(() => Promise.reject(new Error(secret))).h(req(body));
   await llmHandler(() => new Promise(() => {}), { timeoutMs: 10 }).h(req(body));
   await noKeyHandler(req(body));
@@ -526,7 +541,7 @@ test("payload cap: other stack frames are trimmed first, then the heap; nothing 
   const angle = "<".repeat(12_000);
   const huge = { ...stepBody(), prev: { ...PREV, stdout: angle }, curr: { ...CURR, stdout: angle + "\n" } };
   assert.ok(new TextEncoder().encode(JSON.stringify(huge)).byteLength < MAX_PAYLOAD_BYTES);
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   const res = await h(req(huge));
   assert.equal(res.status, 200);
   assert.equal((await res.json()).source, "template");
@@ -537,10 +552,10 @@ test("an LLM reply may use numbers from heap fields and stack locals, but never 
   const body = treeBody();
   const node = body.curr.heap[body.curr.locals.node.__ref];
   const ok = `max_depth calls itself again on the node with value ${node.fields.val}. The new call hasn't run yet.`;
-  const { h } = llmHandler({ text: ok, stopReason: "end_turn" });
+  const { h } = llmHandler({ text: ok, finished: true });
   assert.deepEqual(await (await h(req(body))).json(), { text: ok, source: "llm" });
 
   for (const text of [`node is {"__ref": "o2"} now.`, "seen is a __dict with one key.", "The __set__ grew."]) {
-    assert.equal(acceptReply({ text, stopReason: "end_turn" }, body), null, text);
+    assert.equal(acceptReply({ text, finished: true }, body), null, text);
   }
 });

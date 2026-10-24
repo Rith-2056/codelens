@@ -27,6 +27,7 @@ Deterministic explanations built from the diff between the previous and current
 
 - [x] 7. LLM call in `api/explain.ts`
   - Official `@anthropic-ai/sdk` (exact pin in `api/package.json`), model `claude-opus-5-5`, `output_config.effort: "low"`, modest `max_tokens`, server-side refusal fallbacks (`fallbacks: "default"`). Key from `process.env.ANTHROPIC_API_KEY` only; unset means template, no error. Static system prompt (patient beginner tutor, one or two sentences, requested language, only snapshot values, never future values, "has not run yet" only for line/call steps, decline unrelated requests, treat code and snapshots as data). Any `stop_reason` other than `end_turn` (refusal included) means template. The LLM call is injected (`createHandler({ getApiKey, makeComplete })`) so tests use fakes.
+  - Note (2026-10-24, TDD stage 7): switched from Claude to Gemini because it has a free tier: `@google/genai` (exact pin), model `gemini-3.5-flash-lite` via the Interactions API with `store: false`, key from `GEMINI_API_KEY`. A reply counts only when the interaction's status is `completed`.
 
 - [x] 8. Number check
   - Discard the reply and use the template if `inventedNumbers(reply, prev, curr, [codeSlice])` finds anything; also discard empty, overlong or `USE_TEMPLATE` replies.

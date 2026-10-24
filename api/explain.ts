@@ -1,8 +1,8 @@
 // POST /api/explain: serverless handler (Web-standard Request/Response).
 //
 // Returns a one-or-two-sentence explanation of one trace step. When
-// ANTHROPIC_API_KEY is set (server env only, never sent to the browser) it asks
-// Claude to word the explanation; otherwise, and on ANY failure, it returns the
+// GEMINI_API_KEY is set (server env only, never sent to the browser) it asks
+// Gemini to word the explanation; otherwise, and on ANY failure, it returns the
 // deterministic template from explainStep. It never logs anything, so student
 // code and snapshots never reach a log.
 //
@@ -19,7 +19,7 @@
 // Student code never runs here: this endpoint only describes snapshots the
 // browser already recorded.
 
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 import type { TraceStep } from "../frontend/src/types/trace.ts";
 import { explainStep, inventedNumbers, type Lang } from "../frontend/src/explain/index.ts";
 
@@ -32,11 +32,10 @@ export const LLM_TIMEOUT_MS = 5_000;
 /** Longest LLM reply accepted (templates stay well under this). */
 export const MAX_REPLY_CHARS = 400;
 
-export const MODEL = "claude-opus-5-5";
-/** Thinking is always on for this model and counts toward max_tokens; the reply itself is 1-2 sentences. */
-export const MAX_TOKENS = 1024;
-/** Server-side refusal fallbacks, `fallbacks: "default"` form. */
-export const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+/** Gemini's fastest stable model: the whole call must fit in LLM_TIMEOUT_MS. */
+export const MODEL = "gemini-3.5-flash-lite";
+/** The reply is one or two sentences. */
+export const MAX_OUTPUT_TOKENS = 512;
 /** The model may answer this instead of an explanation; we then use the template. */
 export const USE_TEMPLATE = "USE_TEMPLATE";
 
@@ -82,55 +81,46 @@ Answer directly without deliberating.`;
 // LLM seam. Tests inject a fake `Complete`; production wraps the SDK client.
 
 export type LlmPrompt = { system: string; user: string };
-export type LlmReply = { text: string; stopReason: string | null };
+/** `finished` is false when the model stopped early (blocked, failed, cut off). */
+export type LlmReply = { text: string; finished: boolean };
 export type Complete = (prompt: LlmPrompt, signal: AbortSignal) => Promise<LlmReply>;
 
-type BetaCreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
-type BetaMessage = Anthropic.Beta.Messages.BetaMessage;
+type InteractionParams = {
+  model: string;
+  input: string;
+  system_instruction: string;
+  store: false;
+  generation_config: { max_output_tokens: number; thinking_level: "minimal" };
+};
+type InteractionOptions = { timeout_ms: number; fetch_options: { signal: AbortSignal } };
 
-/** The part of the Anthropic client this file uses (so tests can pass a fake). */
-export type MessagesClient = {
-  beta: {
-    messages: {
-      create(
-        body: BetaCreateParams,
-        options?: { signal?: AbortSignal; timeout?: number; maxRetries?: number },
-      ): PromiseLike<BetaMessage>;
-    };
+/** The part of the Gemini client this file uses (so tests can pass a fake). */
+export type InteractionsClient = {
+  interactions: {
+    create(params: InteractionParams, options?: InteractionOptions): PromiseLike<{ status: string; output_text?: string }>;
   };
 };
 
-/** The exact request body sent to the Messages API (exported for tests). */
-export function buildRequest(prompt: LlmPrompt): BetaCreateParams {
+/** The exact request sent to the Interactions API (exported for tests). */
+export function buildRequest(prompt: LlmPrompt): InteractionParams {
   return {
     model: MODEL,
-    max_tokens: MAX_TOKENS,
-    betas: [FALLBACK_BETA],
-    fallbacks: "default",
-    output_config: { effort: "low" },
-    system: prompt.system,
-    messages: [{ role: "user", content: prompt.user }],
+    input: prompt.user,
+    system_instruction: prompt.system,
+    // Never keep student code or snapshots on Google's side.
+    store: false,
+    generation_config: { max_output_tokens: MAX_OUTPUT_TOKENS, thinking_level: "minimal" },
   };
 }
 
-/** Wrap an Anthropic client as a `Complete`. */
-export function anthropicComplete(client: MessagesClient, timeoutMs: number = LLM_TIMEOUT_MS): Complete {
+/** Wrap a Gemini client as a `Complete`. */
+export function geminiComplete(client: InteractionsClient, timeoutMs: number = LLM_TIMEOUT_MS): Complete {
   return async (prompt, signal) => {
-    const msg = await client.beta.messages.create(buildRequest(prompt), {
-      signal,
-      timeout: timeoutMs,
-      // At most one quick retry; the signal still caps the whole call at timeoutMs.
-      maxRetries: 1,
+    const interaction = await client.interactions.create(buildRequest(prompt), {
+      timeout_ms: timeoutMs,
+      fetch_options: { signal },
     });
-    // After a server-side fallback, only text after the last fallback block
-    // belongs to the model that finished the turn.
-    let start = 0;
-    msg.content.forEach((b, i) => {
-      if (b.type === "fallback") start = i + 1;
-    });
-    let text = "";
-    for (const b of msg.content.slice(start)) if (b.type === "text") text += b.text;
-    return { text, stopReason: msg.stop_reason };
+    return { text: interaction.output_text ?? "", finished: interaction.status === "completed" };
   };
 }
 
@@ -320,7 +310,7 @@ const RAW_TAG = /__(?:dict|set|deque|ref|type|len)(?:__)?(?![A-Za-z0-9])|\{"__/;
 
 /** Accept an LLM reply only if it is short, non-empty, shows no raw tags and invents no numbers. */
 export function acceptReply(reply: LlmReply, body: Body): string | null {
-  if (reply.stopReason !== "end_turn") return null; // refusal, max_tokens, pause_turn, ...
+  if (!reply.finished) return null; // blocked, failed, cut off, ...
   const text = reply.text.replace(/\s+/g, " ").trim();
   if (text === "" || text.length > MAX_REPLY_CHARS) return null;
   if (text.includes(USE_TEMPLATE)) return null;
@@ -415,16 +405,16 @@ export function clientId(request: Request): string {
 
 function envApiKey(): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  const key = env?.ANTHROPIC_API_KEY;
+  const key = env?.GEMINI_API_KEY;
   return key !== undefined && key.trim() !== "" ? key : undefined;
 }
 
 function sdkComplete(apiKey: string): Complete {
-  return anthropicComplete(new Anthropic({ apiKey, timeout: LLM_TIMEOUT_MS, maxRetries: 1 }));
+  return geminiComplete(new GoogleGenAI({ apiKey }));
 }
 
 export type HandlerOptions = {
-  /** Server-side key lookup; default reads process.env.ANTHROPIC_API_KEY on each request. */
+  /** Server-side key lookup; default reads process.env.GEMINI_API_KEY on each request. */
   getApiKey?: () => string | undefined;
   /** Build the LLM call for a key; default wraps the official SDK. */
   makeComplete?: (apiKey: string) => Complete;

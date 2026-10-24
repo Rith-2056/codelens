@@ -94,6 +94,10 @@ type TraceResult = {
   timeout, start a fresh worker in the background.
 
 ## Explanation API rules
+- Provider: Gemini through the official `@google/genai` SDK (Interactions
+  API), model `gemini-3.5-flash-lite`, key `GEMINI_API_KEY` in the server
+  environment only. Always send `store: false` so student code is not kept on
+  Google's side.
 - LLM prompt: patient beginner tutor, one or two sentences, requested language,
   only values present in the snapshots, never future values, say the
   highlighted line has not run yet, decline unrelated requests.

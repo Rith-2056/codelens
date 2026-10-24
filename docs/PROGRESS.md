@@ -29,7 +29,7 @@ pre-commit hook enforces it).
 | 3 | Acceptance and accessibility pass | done (real screen reader still to do) |
 | 4 | Fix the stale `StackFrame` comment in `trace.ts` | done |
 | 5 | Shrink the bundle | done |
-| 6 | Live Claude API test | paused: needs your API key |
+| 6 | Live LLM test | paused: needs your Gemini key |
 
 ### Stage 1: TDD tooling and wave 3 commit
 - Branch `codelens-stages` created from `main`.
@@ -139,3 +139,44 @@ pre-commit hook enforces it).
   `python -m json.tool shared/fixtures/<name>.json` to read one.
 - **Checks:** all green (194 pytest, 111 node tests, 37 vitest, 2 bundle-size
   tests, typecheck, build).
+
+## Next round: LeetCode practice, counterexamples, AI help
+
+Decisions (2026-10-24):
+- Use Gemini instead of Claude, for its free tier.
+- Use the real LeetCode problem names and formats (`class Solution`), with
+  statements in our own words.
+- The BFS lesson becomes "Find if Path Exists in Graph".
+- Drop the "no online judging" non-goal.
+- Save sessions in this browser only.
+
+| Stage | Goal | Status |
+|---|---|---|
+| 7 | Swap Claude for Gemini in `/api/explain` | done |
+| 8 | Pages and navigation, glassy iOS-style UI | todo |
+| 9 | LeetCode problems with reference solutions | todo |
+| 10 | Counterexample search in Pyodide | todo |
+| 11 | Three-level AI help (hint, explanation, possible fix) | todo |
+| 12 | Mistake categories and saved sessions | todo |
+| 13 | Live Gemini test | paused: needs your Gemini key |
+
+### Stage 7: Claude → Gemini
+- **Docs checked first:** Google's quickstart, text generation and models pages,
+  and the installed SDK's type definitions.
+- **SDK:** `@google/genai` 2.31.0 (exact pin) replaces `@anthropic-ai/sdk` in
+  `api/package.json`.
+- **Tests rewritten first, run red** (the module could not load):
+  - the request: `gemini-3.5-flash-lite`, the system instruction, a small
+    `max_output_tokens`, `thinking_level: "minimal"`, `store: false`
+  - `geminiComplete`: passes `timeout_ms` and the abort signal, reads
+    `output_text`
+  - unfinished interactions (`incomplete`, `failed`, `cancelled`,
+    `budget_exceeded`, `requires_action`) fall back to the template
+  - the key comes from `GEMINI_API_KEY`, never `ANTHROPIC_API_KEY`
+  - `package.json` pins the Gemini SDK and no longer lists Anthropic's
+- **Code:** only the provider seam in `api/explain.ts` changed. The number
+  check, caps, cache, rate limit, 5 s deadline and no-logging rule are
+  untouched. The real `GoogleGenAI` client type-checks against our interface
+  with no cast.
+- **Checks:** all green (33 API tests). The live call is untested until a key
+  is set (stage 13).
