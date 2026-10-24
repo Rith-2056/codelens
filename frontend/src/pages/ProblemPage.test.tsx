@@ -11,6 +11,8 @@ import { problemBySlug } from "../problems";
 const fixture = JSON.parse(twoSumRaw) as { program: string; trace: TraceResult };
 
 const tracePractice = vi.fn<(slug: string, source: string | null, args: JsonValue[]) => Promise<{ program: string; trace: TraceResult }>>();
+type Search = { found: boolean; tried: number; complete?: boolean; timedOut?: boolean; args?: JsonValue[]; got?: JsonValue; expected?: JsonValue; error?: { type: string; message: string } | null };
+const findCounterexample = vi.fn<(slug: string, source: string) => Promise<Search>>();
 const checkPractice = vi.fn<(slug: string, source: string, args: JsonValue[]) => Promise<{ correct: boolean; got: JsonValue; expected: JsonValue; error: { type: string; message: string } | null }>>();
 vi.mock("../worker/traceClient", () => ({
   TRACE_TIMEOUT_MS: 3000,
@@ -22,6 +24,7 @@ vi.mock("../worker/traceClient", () => ({
   runTrace: () => Promise.reject(new Error("not used")),
   tracePractice: (slug: string, source: string | null, args: JsonValue[]) => tracePractice(slug, source, args),
   checkPractice: (slug: string, source: string, args: JsonValue[]) => checkPractice(slug, source, args),
+  findCounterexample: (slug: string, source: string) => findCounterexample(slug, source),
 }));
 
 import ProblemPage from "./ProblemPage";
@@ -31,6 +34,7 @@ const twoSum = problemBySlug("two-sum")!;
 beforeEach(() => {
   tracePractice.mockReset();
   checkPractice.mockReset();
+  findCounterexample.mockReset();
   vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
   // The student's run reuses the reference fixture's trace shape.
   tracePractice.mockImplementation(async () => fixture);
@@ -162,5 +166,85 @@ describe("problem page", () => {
     await screen.findByRole("region", { name: "Correct solution's run" });
     const result = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } });
     expect(result.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  });
+
+  describe("Submit: search for a small input that proves the solution wrong", () => {
+    async function submit() {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+      });
+      await screen.findByRole("status", { name: "Result" });
+    }
+
+    it("shows the smallest failing input and steps through the student's run on it", async () => {
+      findCounterexample.mockResolvedValue({ found: true, args: [[-2, -2], -4], got: [0, 0], expected: [0, 1], error: null, tried: 7 });
+      render(<ProblemPage problem={twoSum} />);
+      await submit();
+      expect(findCounterexample).toHaveBeenCalledWith("two-sum", editor().value);
+      expect(screen.getByRole("status", { name: "Result" }).textContent).toBe(
+        "CodeLens found a small input where your solution goes wrong: nums = [-2, -2], target = -4. " +
+          "Your solution returned [0, 0], but the correct answer is [0, 1].",
+      );
+      await screen.findByRole("region", { name: "Your solution's run" });
+      expect(tracePractice).toHaveBeenCalledWith("two-sum", editor().value, [[-2, -2], -4]);
+      // The failing input is shown as the current input.
+      expect(screen.getByRole("button", { name: "Failing input: nums = [-2, -2], target = -4" }).getAttribute("aria-pressed")).toBe("true");
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /show the correct solution/i }));
+      });
+      await waitFor(() => expect(tracePractice).toHaveBeenCalledWith("two-sum", null, [[-2, -2], -4]));
+    });
+
+    it("reports a crash on the smallest input", async () => {
+      findCounterexample.mockResolvedValue({ found: true, args: [[0, 1], 1], got: null, expected: [0, 1], error: { type: "IndexError", message: "list index out of range" }, tried: 1 });
+      render(<ProblemPage problem={twoSum} />);
+      await submit();
+      expect(screen.getByRole("status", { name: "Result" }).textContent).toBe(
+        "CodeLens found a small input where your solution goes wrong: nums = [0, 1], target = 1. " +
+          "Your solution stopped with IndexError: list index out of range.",
+      );
+    });
+
+    it("accepts a solution when the search finds nothing and every example passes", async () => {
+      findCounterexample.mockResolvedValue({ found: false, tried: 423, complete: true });
+      checkPractice.mockResolvedValue({ correct: true, got: [0, 1], expected: [0, 1], error: null });
+      render(<ProblemPage problem={twoSum} />);
+      await submit();
+      expect(checkPractice).toHaveBeenCalledTimes(3);
+      expect(screen.getByRole("status", { name: "Result" }).textContent).toBe(
+        "Accepted: CodeLens checked 423 small inputs and all 3 examples, and your solution was right every time.",
+      );
+    });
+
+    it("is honest when the search ran out of time", async () => {
+      findCounterexample.mockResolvedValue({ found: false, tried: 120, complete: false });
+      checkPractice.mockResolvedValue({ correct: true, got: [0, 1], expected: [0, 1], error: null });
+      render(<ProblemPage problem={twoSum} />);
+      await submit();
+      expect(screen.getByRole("status", { name: "Result" }).textContent).toBe(
+        "No mistake found: your solution was right on the 120 small inputs CodeLens had time to check and on all 3 examples.",
+      );
+    });
+
+    it("falls back to an example that fails when the search found nothing", async () => {
+      findCounterexample.mockResolvedValue({ found: false, tried: 50, complete: true });
+      checkPractice
+        .mockResolvedValueOnce({ correct: true, got: [2, 3], expected: [2, 3], error: null })
+        .mockResolvedValueOnce({ correct: false, got: [1, 0], expected: [0, 1], error: null });
+      render(<ProblemPage problem={twoSum} />);
+      await submit();
+      expect(screen.getByRole("status", { name: "Result" }).textContent).toBe(
+        "Not yet: your solution returned [1, 0], but the correct answer is [0, 1].",
+      );
+      expect(screen.getByRole("button", { name: "nums = [4, 4], target = 8" }).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("explains a search that timed out", async () => {
+      findCounterexample.mockResolvedValue({ found: false, tried: 0, complete: false, timedOut: true });
+      checkPractice.mockResolvedValue({ correct: true, got: [0, 1], expected: [0, 1], error: null });
+      render(<ProblemPage problem={twoSum} />);
+      await submit();
+      expect(screen.getByRole("status", { name: "Result" }).textContent).toMatch(/took too long/i);
+    });
   });
 });

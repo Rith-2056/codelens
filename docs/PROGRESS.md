@@ -155,7 +155,7 @@ Decisions (2026-10-24):
 | 7 | Swap Claude for Gemini in `/api/explain` | done |
 | 8 | Pages and navigation, glassy iOS-style UI | done |
 | 9 | LeetCode problems with reference solutions | done |
-| 10 | Counterexample search in Pyodide | todo |
+| 10 | Counterexample search in Pyodide | done |
 | 11 | Three-level AI help (hint, explanation, possible fix) | todo |
 | 12 | Mistake categories and saved sessions | todo |
 | 13 | Live Gemini test | paused: needs your Gemini key |
@@ -335,3 +335,44 @@ Decisions (2026-10-24):
   lazy chunk (11-85 KB).
 - **Checks:** all green (216 pytest, 111 node tests, 91 vitest, typecheck,
   build, bundle size).
+
+### Stage 10: counterexample search
+- **Tests written first** (`tests/test_counterexample.py`, 22), run red, then
+  made green:
+  - every reference solution has no counterexample, and the search really
+    checks every candidate
+  - every candidate input is valid within LeetCode's rules (the reference
+    accepts it) and sorted smallest first
+  - six planted beginner bugs, each found at its smallest possible input,
+    with nothing smaller failing:
+    - Climbing Stairs off-by-one loop → `n = 2`
+    - Two Sum using one element twice → a 2-number list, `[0, 0]`
+    - Contains Duplicate checking only neighbours → a 3-number list
+    - Two Sum II returning 0-based indices → a 2-number list
+    - a path search that forgets edges go both ways → `n = 2`
+    - max depth counting edges, not nodes → the one-node tree
+  - crashes and runaway loops count as counterexamples; the search is
+    deterministic; it respects its time budget
+- **Test fix, stated:** the time-budget test used a slow exponential
+  `climbStairs`. That gets flagged by the line budget at about n = 18 (like
+  LeetCode's "time limit exceeded") before a 0.05 s deadline, so the test uses
+  a 2 ms budget. The runaway message now also mentions "a lot of repeated
+  work".
+- **Client and UI tests first** (8, red, then green):
+  - `findCounterexample` request and timeout
+  - Submit: shows the failing input and steps through it; reports crashes;
+    "Accepted" with the counts; honest when time ran out; falls back to a
+    failing example; explains a timed-out search
+- **Code:**
+  - `practice.py`: per-problem input generators (two-sum 423, two-sum-ii 325,
+    path 169, duplicates 120, tree shapes 23, stairs 20) and
+    `find_counterexample` with a 1.5 s budget
+  - worker request `practice-counterexample`; `findCounterexample()`
+  - Submit button and a "Failing input" chip on the problem page
+- **Pyodide:** the planted bug is found on the 2nd input; full searches of the
+  correct references take 11-251 ms.
+- **Real browser:** the "uses one element twice" Two Sum is caught with
+  `nums = [0, 0], target = 0` in 0.5 s; a correct solution is accepted after
+  423 small inputs and 3 examples in 0.7 s.
+- **Checks:** all green (238 pytest, 111 node tests, 99 vitest, typecheck,
+  build, bundle size, Pyodide check).

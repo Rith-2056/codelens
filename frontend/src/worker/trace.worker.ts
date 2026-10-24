@@ -39,7 +39,13 @@ type PyodideModule = {
 type TraceJson = (source: string) => string;
 type PracticeTraceJson = (slug: string, source: string | null, argsJson: string) => string;
 type PracticeCheckJson = (slug: string, source: string, argsJson: string) => string;
-type Python = { traceJson: TraceJson; practiceTrace: PracticeTraceJson; practiceCheck: PracticeCheckJson };
+type CounterexampleJson = (slug: string, source: string) => string;
+type Python = {
+  traceJson: TraceJson;
+  practiceTrace: PracticeTraceJson;
+  practiceCheck: PracticeCheckJson;
+  counterexample: CounterexampleJson;
+};
 
 // The DOM lib is in scope (tsconfig is shared with the app), so describe the
 // worker global by hand instead of pulling in lib.webworker.
@@ -82,6 +88,10 @@ async function load(): Promise<Python> {
     traceJson: callable<TraceJson>(pyodide.runPython("tracer.trace_json"), "tracer.trace_json"),
     practiceTrace: callable<PracticeTraceJson>(pyodide.runPython("practice.trace_example_json"), "practice.trace_example_json"),
     practiceCheck: callable<PracticeCheckJson>(pyodide.runPython("practice.check_json"), "practice.check_json"),
+    counterexample: callable<CounterexampleJson>(
+      pyodide.runPython("practice.find_counterexample_json"),
+      "practice.find_counterexample_json",
+    ),
   };
   py.traceJson("pass\n"); // warm-up: the first real trace is then fast
   return py;
@@ -95,6 +105,8 @@ function handle(py: Python, req: WorkerRequest): string {
       return py.practiceTrace(req.slug, req.source, JSON.stringify(req.args));
     case "practice-check":
       return py.practiceCheck(req.slug, req.source, JSON.stringify(req.args));
+    case "practice-counterexample":
+      return py.counterexample(req.slug, req.source);
   }
 }
 

@@ -89,6 +89,17 @@ describe("traceClient requests", () => {
     expect(await p).toEqual(answer);
   });
 
+  it("findCounterexample posts the problem and the source, and resolves the search result", async () => {
+    const w = await readyWorker();
+    const p = client.findCounterexample("climbing-stairs", "src");
+    await posted(w);
+    const req = w.posted[0]!;
+    expect(req).toEqual({ id: req.id, kind: "practice-counterexample", slug: "climbing-stairs", source: "src" });
+    const found = { found: true, args: [2], got: 0, expected: 2, error: null, tried: 2 };
+    w.send({ id: req.id, result: JSON.stringify(found) });
+    expect(await p).toEqual(found);
+  });
+
   it("runs one request at a time", async () => {
     const w = await readyWorker();
     const a = client.runTrace("a\n");
@@ -116,6 +127,15 @@ describe("timeouts", () => {
     expect(res.trace.status).toBe("timeout");
     expect(w.terminated).toBe(true);
     expect(FakeWorker.all).toHaveLength(2);
+  });
+
+  it("a stuck search resolves as not found, marked as timed out", async () => {
+    const w = await readyWorker();
+    vi.useFakeTimers();
+    const p = client.findCounterexample("climbing-stairs", "loop forever");
+    await posted(w);
+    await vi.advanceTimersByTimeAsync(client.TRACE_TIMEOUT_MS + 1);
+    expect(await p).toEqual({ found: false, tried: 0, complete: false, timedOut: true });
   });
 
   it("a stuck check resolves as not correct, with a Timeout error", async () => {

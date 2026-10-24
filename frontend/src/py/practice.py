@@ -234,3 +234,176 @@ def same_answer(slug: str, got, expected) -> bool:
     if rule == "same-items" and g[0] == "list" and e[0] == "list":
         return sorted(g[1]) == sorted(e[1])
     return g == e
+
+
+# ---- Counterexample search ------------------------------------------------
+#
+# When a solution is wrong, find the smallest input that proves it: run it
+# next to the reference on small valid inputs (within LeetCode's rules, e.g.
+# Two Sum always has exactly one answer), smallest first, and stop at the
+# first disagreement, crash, or runaway loop.
+
+import itertools  # noqa: E402
+import time  # noqa: E402
+
+SEARCH_SECONDS = 1.5  # well inside the worker's 3 s timeout
+
+
+def _abs_sum(xs) -> int:
+    return sum(abs(x) for x in xs)
+
+
+def _tree_nodes(values) -> int:
+    return sum(1 for v in values if v is not None)
+
+
+_SIZE = {
+    "two-sum": lambda a: (len(a[0]), _abs_sum(a[0]), abs(a[1])),
+    "contains-duplicate": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "two-sum-ii-input-array-is-sorted": lambda a: (len(a[0]), _abs_sum(a[0]), abs(a[1])),
+    "find-if-path-exists-in-graph": lambda a: (a[0] + len(a[1]), len(a[1]), a[2], a[3]),
+    "maximum-depth-of-binary-tree": lambda a: (_tree_nodes(a[0]), len(a[0])),
+    "climbing-stairs": lambda a: (a[0],),
+}
+
+
+def input_size(slug: str, args: list) -> tuple:
+    """How big an input is, for "smallest first" (compared as a tuple)."""
+    return _SIZE[slug](args)
+
+
+def _unique_pair_targets(nums, ordered_pairs):
+    """Targets reached by exactly one pair of positions (LeetCode's guarantee)."""
+    counts: dict = {}
+    for i, j in ordered_pairs(len(nums)):
+        s = nums[i] + nums[j]
+        counts[s] = counts.get(s, 0) + 1
+    return sorted(t for t, c in counts.items() if c == 1)
+
+
+def _pairs(n):
+    return itertools.combinations(range(n), 2)
+
+
+def _gen_two_sum():
+    for length in (2, 3, 4):
+        values = range(-2, 3)
+        arrays = itertools.product(values, repeat=length)
+        for k, nums in enumerate(arrays):
+            if length == 4 and k % 9:  # sample the larger arrays
+                continue
+            for target in _unique_pair_targets(nums, _pairs):
+                yield [list(nums), target]
+
+
+def _gen_contains_duplicate():
+    for length in (1, 2, 3, 4):
+        for nums in itertools.product(range(3), repeat=length):
+            yield [list(nums)]
+
+
+def _gen_two_sum_ii():
+    for length in (2, 3, 4):
+        for nums in itertools.combinations_with_replacement(range(-2, 4), length):
+            for target in _unique_pair_targets(nums, _pairs):
+                yield [list(nums), target]
+
+
+def _gen_valid_path():
+    for n in (1, 2, 3, 4):
+        all_edges = list(itertools.combinations(range(n), 2))
+        max_edges = 3 if n <= 3 else 2
+        sources = range(n) if n <= 3 else (0,)
+        for count in range(0, min(max_edges, len(all_edges)) + 1):
+            for edges in itertools.combinations(all_edges, count):
+                for s in sources:
+                    for d in range(n):
+                        yield [n, [list(e) for e in edges], s, d]
+
+
+def _shapes(n):
+    """Every binary tree shape with n nodes, as nested (left, right) tuples."""
+    if n == 0:
+        yield None
+        return
+    for left in range(n):
+        for lt in _shapes(left):
+            for rt in _shapes(n - 1 - left):
+                yield (lt, rt)
+
+
+def _level_order(shape):
+    """A shape as LeetCode's level-order list, values 1, 2, ... in BFS order."""
+    if shape is None:
+        return []
+    out, queue, label = [], [shape], 1
+    while queue:
+        node = queue.pop(0)
+        if node is None:
+            out.append(None)
+            continue
+        out.append(label)
+        label += 1
+        queue.extend([node[0], node[1]])
+    while out and out[-1] is None:
+        out.pop()
+    return out
+
+
+def _gen_max_depth():
+    for n in range(0, 5):
+        for shape in _shapes(n):
+            yield [_level_order(shape)]
+
+
+def _gen_climbing_stairs():
+    for n in range(1, 21):
+        yield [n]
+
+
+_GENERATORS = {
+    "two-sum": _gen_two_sum,
+    "contains-duplicate": _gen_contains_duplicate,
+    "two-sum-ii-input-array-is-sorted": _gen_two_sum_ii,
+    "find-if-path-exists-in-graph": _gen_valid_path,
+    "maximum-depth-of-binary-tree": _gen_max_depth,
+    "climbing-stairs": _gen_climbing_stairs,
+}
+
+
+def candidates(slug: str) -> list:
+    """Small valid inputs for ``slug``, smallest first (deterministic)."""
+    key = ("candidates", slug)
+    if key not in _cache:
+        seen, out = set(), []
+        for args in _GENERATORS[slug]():
+            fingerprint = json.dumps(args)
+            if fingerprint not in seen:
+                seen.add(fingerprint)
+                out.append(args)
+        out.sort(key=lambda a: input_size(slug, a))  # stable: generator order breaks ties
+        _cache[key] = out
+    return _cache[key]
+
+
+def find_counterexample(slug: str, source: str, seconds: float = SEARCH_SECONDS) -> dict:
+    """The smallest input where ``source`` disagrees with the reference.
+
+    Returns ``{"found": True, "args", "got", "expected", "error", "tried"}`` or
+    ``{"found": False, "tried", "complete"}``; ``complete`` is False when the
+    time budget ran out before every candidate was checked.
+    """
+    start = time.perf_counter()
+    tried = 0
+    for args in candidates(slug):
+        if tried and time.perf_counter() - start > seconds:
+            return {"found": False, "tried": tried, "complete": False}
+        tried += 1
+        res = check(slug, source, args)
+        if not res["correct"]:
+            return {"found": True, "args": args, "got": res["got"], "expected": res["expected"], "error": res["error"], "tried": tried}
+    return {"found": False, "tried": tried, "complete": True}
+
+
+def find_counterexample_json(slug: str, source: str) -> str:
+    return _dumps(find_counterexample(slug, source))

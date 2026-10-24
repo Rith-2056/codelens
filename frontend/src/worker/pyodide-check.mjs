@@ -302,5 +302,18 @@ const stuck = JSON.parse(practiceCheck("climbing-stairs", forever, "[3]"));
 const stuckMs = performance.now() - tf;
 check("practice check stops a runaway loop quickly", stuck.error?.type === "StepLimit" && stuckMs < 2000, `${stuck.error?.type} ${stuckMs.toFixed(0)} ms`);
 
+// Counterexample search under Pyodide: finds a planted bug's smallest input,
+// and searching a correct solution fits the worker's 3 s timeout.
+const findCx = pyodide.runPython("practice.find_counterexample_json");
+const offByOne = "class Solution:\n    def climbStairs(self, n):\n        ways = [1, 1] + [0] * n\n        for i in range(2, n):\n            ways[i] = ways[i - 1] + ways[i - 2]\n        return ways[n]\n";
+const cx = JSON.parse(findCx("climbing-stairs", offByOne));
+check("counterexample search finds the smallest failing input", cx.found && JSON.stringify(cx.args) === "[2]", JSON.stringify(cx));
+for (const slug of Object.keys(problemsJson)) {
+  const ts = performance.now();
+  const r = JSON.parse(findCx(slug, readFileSync(join(practiceDir, `${slug}.py`), "utf8")));
+  const ms = performance.now() - ts;
+  check(`counterexample search on the ${slug} reference: none found, under 2500 ms`, !r.found && ms < 2500, `${r.tried} inputs${r.complete ? "" : " (time budget hit)"}, ${ms.toFixed(0)} ms`);
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : "\nall Pyodide checks passed");
 process.exit(failures ? 1 : 0);

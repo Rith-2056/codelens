@@ -14,7 +14,9 @@ export type WorkerRequest =
   /** Trace a practice solution on one input; `source: null` means the reference solution. */
   | { id: number; kind: "practice-trace"; slug: string; source: string | null; args: JsonValue[] }
   /** Run a practice solution untraced and compare it with the reference. */
-  | { id: number; kind: "practice-check"; slug: string; source: string; args: JsonValue[] };
+  | { id: number; kind: "practice-check"; slug: string; source: string; args: JsonValue[] }
+  /** Search small inputs for one where the solution disagrees with the reference. */
+  | { id: number; kind: "practice-counterexample"; slug: string; source: string };
 
 /** worker → main */
 export type WorkerMessage =

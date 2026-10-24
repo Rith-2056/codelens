@@ -25,6 +25,18 @@ export type PracticeCheck = {
   error: { type: string; message: string } | null;
 };
 
+/** The result of searching small inputs for one where a solution goes wrong. */
+export type CounterexampleSearch =
+  | {
+      found: true;
+      args: JsonValue[];
+      got: JsonValue;
+      expected: JsonValue;
+      error: { type: string; message: string } | null;
+      tried: number;
+    }
+  | { found: false; tried: number; complete: boolean; timedOut?: boolean };
+
 /** A request body without its id (distributes over the union). */
 type RequestBody = WorkerRequest extends infer R ? (R extends WorkerRequest ? Omit<R, "id"> : never) : never;
 
@@ -224,6 +236,18 @@ export function checkPractice(slug: string, source: string, args: JsonValue[]): 
       got: null,
       expected: null,
       error: { type: "Timeout", message: `Your solution took longer than ${TRACE_TIMEOUT_MS / 1000} seconds.` },
+    })),
+  );
+}
+
+/** Search small valid inputs, smallest first, for one where the solution disagrees with the reference. */
+export function findCounterexample(slug: string, source: string): Promise<CounterexampleSearch> {
+  return enqueue(() =>
+    requestOne<CounterexampleSearch>({ kind: "practice-counterexample", slug, source }, () => ({
+      found: false,
+      tried: 0,
+      complete: false,
+      timedOut: true,
     })),
   );
 }

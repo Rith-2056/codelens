@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import type { TraceResult } from "../types/trace";
+import type { JsonValue, TraceResult } from "../types/trace";
 import type { Lang } from "../explain";
 import Editor from "../components/Editor";
 import StepViewer from "../components/StepViewer";
-import { formatInput, resultMessage, type CheckResult } from "../components/practiceView";
+import {
+  counterexampleMessage,
+  formatInput,
+  passedMessage,
+  resultMessage,
+  type Message,
+} from "../components/practiceView";
 import { scrollBox } from "../components/scrollBox";
 import type { Problem } from "../problems";
-import { checkPractice, preloadTracer, tracePractice } from "../worker/traceClient";
+import { checkPractice, findCounterexample, preloadTracer, tracePractice } from "../worker/traceClient";
 
 type Run = { program: string; trace: TraceResult; id: string };
+/** The input the next Run uses: one of our examples, or the failing input Submit found. */
+type Selected = { kind: "example"; index: number } | { kind: "failing" };
 
 // Reference runs for each problem's first example, bundled as lazy chunks so
 // the main bundle stays small; other examples are traced by Python on demand.
@@ -31,15 +39,19 @@ function starterCode(problem: Problem): string {
 let runCounter = 0;
 
 // One LeetCode problem: the statement (our own words), an editor for your
-// class Solution, our examples, a verdict for each run, your run step by step,
-// and, only when you ask, the correct solution's run next to yours.
+// class Solution, our examples, and two ways to check it:
+// - Run: one input, with a verdict and your run step by step;
+// - Submit: CodeLens searches small inputs for one that proves the solution
+//   wrong and, if it finds one, shows it and steps through your run on it.
+// The correct solution's run shows next to yours only when you ask.
 export default function ProblemPage({ problem }: { problem: Problem }) {
   const [lang, setLang] = useState<Lang>("en");
   const [code, setCode] = useState(() => starterCode(problem));
-  const [example, setExample] = useState(0);
+  const [selected, setSelected] = useState<Selected>({ kind: "example", index: 0 });
+  const [failing, setFailing] = useState<JsonValue[] | null>(null);
   const [running, setRunning] = useState(false);
   const [mine, setMine] = useState<Run | null>(null);
-  const [verdict, setVerdict] = useState<CheckResult | null>(null);
+  const [message, setMessage] = useState<Message | null>(null);
   const [showRef, setShowRef] = useState(false);
   const [reference, setReference] = useState<Run | null>(null);
   const latest = useRef(0);
@@ -48,39 +60,76 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
     preloadTracer().catch(() => {});
   }, []);
 
-  const args = problem.examples[example]!.args;
+  const args = selected.kind === "failing" && failing ? failing : problem.examples[selected.kind === "example" ? selected.index : 0]!.args;
 
   function clearRun() {
     latest.current++;
     setMine(null);
-    setVerdict(null);
+    setMessage(null);
     setShowRef(false);
     setReference(null);
     setRunning(false);
   }
 
-  async function run() {
-    if (running) return;
+  /** Start a request; returns a ticket that is stale once the code or input changes. */
+  function begin(): number {
     const ticket = ++latest.current;
     setRunning(true);
     setShowRef(false);
     setReference(null);
+    return ticket;
+  }
+
+  function failed(ticket: number, err: unknown) {
+    if (ticket !== latest.current) return;
+    setMessage({ tone: "error", text: `Python could not run your code (${err instanceof Error ? err.message : "unknown problem"}).` });
+  }
+
+  async function traceMine(ticket: number, input: JsonValue[]) {
+    const traced = await tracePractice(problem.slug, code, input);
+    if (ticket === latest.current) setMine({ ...traced, id: `mine-${++runCounter}` });
+  }
+
+  async function run() {
+    if (running) return;
+    const ticket = begin();
     try {
-      const [check, traced] = await Promise.all([
-        checkPractice(problem.slug, code, args),
-        tracePractice(problem.slug, code, args),
-      ]);
-      if (ticket !== latest.current) return; // code or example changed meanwhile
-      setVerdict(check);
-      setMine({ ...traced, id: `mine-${++runCounter}` });
+      const check = await checkPractice(problem.slug, code, args);
+      if (ticket !== latest.current) return; // code or input changed meanwhile
+      setMessage(resultMessage(check));
+      await traceMine(ticket, args);
     } catch (err) {
+      failed(ticket, err);
+    } finally {
+      if (ticket === latest.current) setRunning(false);
+    }
+  }
+
+  async function submit() {
+    if (running) return;
+    const ticket = begin();
+    try {
+      const search = await findCounterexample(problem.slug, code);
       if (ticket !== latest.current) return;
-      setVerdict({
-        correct: false,
-        got: null,
-        expected: null,
-        error: { type: "Python", message: `could not run (${err instanceof Error ? err.message : "unknown problem"})` },
-      });
+      if (search.found) {
+        setFailing(search.args);
+        setSelected({ kind: "failing" });
+        setMessage(counterexampleMessage(problem.params, { ...search, correct: false }));
+        await traceMine(ticket, search.args);
+        return;
+      }
+      const checks = await Promise.all(problem.examples.map((ex) => checkPractice(problem.slug, code, ex.args)));
+      if (ticket !== latest.current) return;
+      const bad = checks.findIndex((c) => !c.correct);
+      if (bad >= 0) {
+        setSelected({ kind: "example", index: bad });
+        setMessage(resultMessage(checks[bad]!));
+        await traceMine(ticket, problem.examples[bad]!.args);
+        return;
+      }
+      setMessage(passedMessage(search, problem.examples.length));
+    } catch (err) {
+      failed(ticket, err);
     } finally {
       if (ticket === latest.current) setRunning(false);
     }
@@ -90,13 +139,11 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
     setShowRef(true);
     const ticket = latest.current;
     const ref =
-      example === 0
+      selected.kind === "example" && selected.index === 0
         ? await loadReference(problem.slug)
-        : { ...(await tracePractice(problem.slug, null, args)), id: `ref-${problem.slug}-${example}` };
+        : { ...(await tracePractice(problem.slug, null, args)), id: `ref-${problem.slug}-${++runCounter}` };
     if (ticket === latest.current) setReference(ref);
   }
-
-  const message = verdict ? resultMessage(verdict) : null;
 
   return (
     <>
@@ -148,20 +195,41 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
                 key={k}
                 type="button"
                 className="example-button"
-                aria-pressed={k === example}
+                aria-pressed={selected.kind === "example" && selected.index === k}
                 onClick={() => {
-                  setExample(k);
+                  setSelected({ kind: "example", index: k });
                   clearRun();
                 }}
               >
                 {formatInput(problem.params, ex.args)}
               </button>
             ))}
+            {failing && (
+              <button
+                type="button"
+                className="example-button example-failing"
+                aria-pressed={selected.kind === "failing"}
+                onClick={() => {
+                  setSelected({ kind: "failing" });
+                  clearRun();
+                }}
+              >
+                Failing input: {formatInput(problem.params, failing)}
+              </button>
+            )}
           </div>
           <div className="toolbar">
-            <button type="button" className="visualize-button" onClick={run} aria-disabled={running}>
-              {running ? "Running…" : "Run"}
+            <button type="button" className="tool-button" onClick={run} aria-disabled={running}>
+              Run
             </button>
+            <button type="button" className="visualize-button" onClick={submit} aria-disabled={running}>
+              Submit
+            </button>
+            {running && (
+              <span className="hint" role="status">
+                Checking…
+              </span>
+            )}
             {mine && !showRef && (
               <button type="button" className="tool-button" onClick={revealReference}>
                 Show the correct solution
