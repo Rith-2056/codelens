@@ -146,3 +146,51 @@ def test_reference_fixtures_match_fresh_traces():
         ref = practice.reference_source(slug)
         assert data["program"] == practice.program(slug, ref, ex["args"])
         assert data["trace"] == practice.trace_example(slug, ref, ex["args"])
+
+
+# ---- checking an answer (used by the problem page and, later, the
+# counterexample search) ---------------------------------------------------
+
+
+def test_check_reports_a_correct_answer_with_json_values():
+    ref = practice.reference_source("two-sum")
+    got = practice.check("two-sum", ref, [[3, 8, 5, 1], 6])
+    assert got == {"correct": True, "got": [2, 3], "expected": [2, 3], "error": None}
+
+
+def test_check_reports_a_wrong_answer_and_what_was_expected():
+    wrong = "class Solution:\n    def climbStairs(self, n):\n        return n\n"
+    got = practice.check("climbing-stairs", wrong, [4])
+    assert got == {"correct": False, "got": 4, "expected": 5, "error": None}
+
+
+def test_check_reports_errors_and_non_json_answers():
+    boom = "class Solution:\n    def climbStairs(self, n):\n        return 1 // 0\n"
+    got = practice.check("climbing-stairs", boom, [4])
+    assert got["correct"] is False and got["got"] is None and got["expected"] == 5
+    assert got["error"]["type"] == "ZeroDivisionError"
+    odd = "class Solution:\n    def twoSum(self, nums, target):\n        return {0, 1}\n"
+    got = practice.check("two-sum", odd, [[4, 4], 8])
+    assert got["correct"] is False and got["got"] == {"__set": [0, 1]}
+
+
+def test_json_entry_points_for_the_worker():
+    args = json.dumps([[4, 4], 8])
+    ref = json.loads(practice.trace_example_json("two-sum", None, args))
+    assert ref["program"].startswith(practice.reference_source("two-sum").rstrip("\n"))
+    assert ref["trace"]["status"] == "ok"
+    student = "class Solution:\n    def twoSum(self, nums, target):\n        return [0, 1]\n"
+    mine = json.loads(practice.trace_example_json("two-sum", student, args))
+    assert mine["program"].startswith(student)
+    assert json.loads(practice.check_json("two-sum", student, args))["correct"] is True
+
+
+def test_a_js_null_source_from_pyodide_means_the_reference():
+    # Pyodide 0.29 passes JavaScript null as a JsNull object, not None (found
+    # by pyodide-check.mjs). Any non-string source must mean "the reference".
+    class JsNull:
+        pass
+
+    args = json.dumps([[4, 4], 8])
+    ref = json.loads(practice.trace_example_json("two-sum", JsNull(), args))
+    assert ref["program"].startswith(practice.reference_source("two-sum").rstrip("\n"))

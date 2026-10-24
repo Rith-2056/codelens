@@ -8,7 +8,7 @@
 // in protocol.ts (PYODIDE_VERSION) anywhere, e.g. `npm i pyodide@0.29.5` in a
 // temp dir, and pass its directory. Exits non-zero on any mismatch.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
@@ -34,8 +34,13 @@ const loadMs = performance.now() - t0;
 
 // Mirror the worker: write tracer.py (and the lesson list) into the FS, import.
 pyodide.FS.mkdirTree("/codelens/frontend/src/py");
-for (const f of ["tracer.py", "gen_fixtures.py"]) {
+for (const f of ["tracer.py", "practice.py", "gen_fixtures.py"]) {
   pyodide.FS.writeFile(`/codelens/frontend/src/py/${f}`, readFileSync(join(pyDir, f), "utf8"), { encoding: "utf8" });
+}
+// gen_fixtures imports practice, which reads the repo's shared/practice folder.
+pyodide.FS.mkdirTree("/codelens/shared/practice");
+for (const f of readdirSync(join(repo, "shared/practice"))) {
+  pyodide.FS.writeFile(`/codelens/shared/practice/${f}`, readFileSync(join(repo, "shared/practice", f), "utf8"), { encoding: "utf8" });
 }
 const traceJson = pyodide.runPython(
   "import sys\nsys.path.insert(0, '/codelens/frontend/src/py')\nimport tracer\ntracer.trace_json",
@@ -255,6 +260,47 @@ for (const source of [...Object.values(lessons), 'e = "🎉ñ"\n']) {
   if (hex !== py) check(`codeHash matches for ${JSON.stringify(source.slice(0, 20))}`, false, `${hex} vs ${py}`);
 }
 check("WebCrypto codeHash == tracer.code_hash", true);
+
+// ---- Practice harness, loaded the way trace.worker.ts loads it: tracer.py and
+// practice.py in one folder, the problem data in ./practice next to them.
+const practiceDir = join(repo, "shared/practice");
+pyodide.FS.mkdirTree("/codelens/w/practice");
+for (const f of ["tracer.py", "practice.py"]) {
+  pyodide.FS.writeFile(`/codelens/w/${f}`, readFileSync(join(pyDir, f), "utf8"), { encoding: "utf8" });
+}
+for (const f of readdirSync(practiceDir)) {
+  pyodide.FS.writeFile(`/codelens/w/practice/${f}`, readFileSync(join(practiceDir, f), "utf8"), { encoding: "utf8" });
+}
+const practiceTrace = pyodide.runPython(
+  // Drop the copy gen_fixtures imported from the repo layout, so this loads /codelens/w/practice.py like the worker does.
+  "import sys\nsys.path.insert(0, '/codelens/w')\nsys.modules.pop('practice', None)\nimport practice\npractice.trace_example_json",
+);
+const practiceCheck = pyodide.runPython("practice.check_json");
+const problemsJson = JSON.parse(readFileSync(join(practiceDir, "problems.json"), "utf8"));
+check("practice data found next to practice.py", pyodide.runPython("str(practice.DATA_DIR)") === "/codelens/w/practice");
+for (const [slug, p] of Object.entries(problemsJson)) {
+  const args = JSON.stringify(p.examples[0].args);
+  const t0p = performance.now();
+  const mine = JSON.parse(practiceTrace(slug, null, args));
+  const ms = performance.now() - t0p;
+  const fixture = JSON.parse(readFileSync(join(fixturesDir, "practice", `${slug}.json`), "utf8"));
+  // Deep equality: the fixture file stores top-level keys in a fixed order.
+  const same = isDeepStrictEqual(mine, fixture);
+  check(`practice ${slug}: reference trace == fixture`, same, same ? "" : firstDiff(mine.trace, fixture.trace));
+  check(`practice ${slug}: traced in under ${LESSON_MS} ms`, ms < LESSON_MS, `${ms.toFixed(1)} ms`);
+  for (const ex of p.examples) {
+    const res = JSON.parse(practiceCheck(slug, readFileSync(join(practiceDir, `${slug}.py`), "utf8"), JSON.stringify(ex.args)));
+    if (!res.correct) check(`practice ${slug}: reference passes ${JSON.stringify(ex.args)}`, false, JSON.stringify(res));
+  }
+}
+const wrongStairs = "class Solution:\n    def climbStairs(self, n):\n        return n\n";
+const wrong = JSON.parse(practiceCheck("climbing-stairs", wrongStairs, "[4]"));
+check("practice check flags a wrong answer", wrong.correct === false && wrong.got === 4 && wrong.expected === 5, JSON.stringify(wrong));
+const forever = "class Solution:\n    def climbStairs(self, n):\n        while True:\n            pass\n";
+const tf = performance.now();
+const stuck = JSON.parse(practiceCheck("climbing-stairs", forever, "[3]"));
+const stuckMs = performance.now() - tf;
+check("practice check stops a runaway loop quickly", stuck.error?.type === "StepLimit" && stuckMs < 2000, `${stuck.error?.type} ${stuckMs.toFixed(0)} ms`);
 
 console.log(failures ? `\n${failures} check(s) FAILED` : "\nall Pyodide checks passed");
 process.exit(failures ? 1 : 0);

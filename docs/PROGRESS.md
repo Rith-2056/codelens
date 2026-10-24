@@ -154,7 +154,7 @@ Decisions (2026-10-24):
 |---|---|---|
 | 7 | Swap Claude for Gemini in `/api/explain` | done |
 | 8 | Pages and navigation, glassy iOS-style UI | done |
-| 9 | LeetCode problems with reference solutions | 9a done (Python); 9b UI todo |
+| 9 | LeetCode problems with reference solutions | 9a, 9b-1 done; 9b-2 (problem page UI) todo |
 | 10 | Counterexample search in Pyodide | todo |
 | 11 | Three-level AI help (hint, explanation, possible fix) | todo |
 | 12 | Mistake categories and saved sessions | todo |
@@ -246,3 +246,34 @@ Decisions (2026-10-24):
   - `shared/practice/`: `problems.json` and six reference solutions
   - `gen_fixtures.py` writes and checks `shared/fixtures/practice/*.json`
 - **Checks:** all green (211 pytest).
+
+### Stage 9b-1: practice requests through the Pyodide worker
+- **Tests written first:**
+  - `practice.check` / `check_json` / `trace_example_json` (5 pytest)
+  - `traceClient.test.ts` with a fake Worker (7 vitest): request shapes, one
+    request at a time, timeouts that resolve and start a fresh worker
+  - a practice section in `pyodide-check.mjs` that loads the harness exactly
+    like the worker
+- **Bug found by the real-Pyodide check:** Pyodide 0.29 passes JavaScript
+  `null` to Python as a `JsNull` object, not `None`, so "trace the reference"
+  crashed. Red test first (any non-string source means the reference), then
+  fixed.
+- **Also fixed:**
+  - `practice.py`'s default data path assumed the repo layout; it now falls
+    back to `./practice` next to the file, the worker layout
+  - the Pyodide mirror lacked `practice.py`, which `gen_fixtures` now imports
+  - two check-script mistakes: a diff helper called on equal values, and
+    comparing JSON text where key order differs (now deep equality)
+- **Flaky test fixed, stated:** the stuck-trace test advanced fake timers
+  before the async code hash finished, so the timeout timer did not exist yet.
+  It now waits for the request to be posted. 74/74 on six runs in a row.
+- **Code:**
+  - `protocol.ts`: `trace` / `practice-trace` / `practice-check` requests
+  - `traceClient.ts`: one generic request path; `tracePractice()` and
+    `checkPractice()`
+  - `trace.worker.ts`: loads `practice.py` and the problem data
+- **Pyodide:** reference traces equal CPython and the fixtures for all six
+  problems (each under 7 ms); a wrong answer is flagged; a runaway loop stops
+  in about 4 ms.
+- **Checks:** all green (216 pytest, 111 node tests, 74 vitest, typecheck,
+  build, bundle size, Pyodide check).

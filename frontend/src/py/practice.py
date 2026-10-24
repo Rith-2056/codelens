@@ -28,7 +28,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import tracer  # noqa: E402
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "shared" / "practice"
+_HERE = Path(__file__).resolve()
+# In the repo the data lives in shared/practice; the worker writes it to a
+# "practice" folder next to this file.
+DATA_DIR = _HERE.parents[3] / "shared" / "practice" if len(_HERE.parents) > 3 else _HERE.parent / "practice"
 
 # Untraced line budget for one run(): far more than any correct solution needs
 # on a small input, small enough that a runaway loop stops quickly.
@@ -96,13 +99,45 @@ def trace_example(slug: str, source: str, args: list) -> dict:
     return tracer.trace(program(slug, source, args), prelude=PRELUDE)
 
 
-def trace_example_json(slug: str, source: str, args_json: str) -> str:
-    """JSON in and out, for the worker."""
-    return json.dumps(
-        {"program": program(slug, source, json.loads(args_json)), "trace": trace_example(slug, source, json.loads(args_json))},
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
+def trace_example_json(slug: str, source: str | None, args_json: str) -> str:
+    """JSON in and out, for the worker. A non-string ``source`` (None in CPython,
+    JsNull when JavaScript passes null through Pyodide) traces the reference."""
+    src = source if type(source) is str else reference_source(slug)
+    args = json.loads(args_json)
+    return _dumps({"program": program(slug, src, args), "trace": trace_example(slug, src, args)})
+
+
+def _dumps(obj) -> str:
+    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
+
+def check(slug: str, source: str, args: list) -> dict:
+    """Run the student's solution and the reference on ``args`` and compare.
+
+    Returns ``{"correct", "got", "expected", "error"}`` with JSON-safe values
+    (an answer that is not plain data, e.g. a set, is shown in the contract's
+    value forms).
+    """
+    expected = run(slug, reference_source(slug), args)
+    mine = run(slug, source, args)
+    exp_value = expected["value"] if expected["ok"] else None
+    if not mine["ok"]:
+        return {"correct": False, "got": None, "expected": _json_value(exp_value), "error": mine["error"]}
+    return {
+        "correct": expected["ok"] and same_answer(slug, mine["value"], exp_value),
+        "got": _json_value(mine["value"]),
+        "expected": _json_value(exp_value),
+        "error": None,
+    }
+
+
+def check_json(slug: str, source: str, args_json: str) -> str:
+    return _dumps(check(slug, source, json.loads(args_json)))
+
+
+def _json_value(v):
+    jv, _cut = tracer.snapshot(v)
+    return jv
 
 
 def _error(exc) -> dict:

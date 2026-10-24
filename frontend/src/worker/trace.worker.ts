@@ -1,12 +1,24 @@
-// Module Web Worker: hosts Pyodide and runs tracer.trace_json on request.
+// Module Web Worker: hosts Pyodide and runs the tracer and the practice
+// harness on request.
 //
 // Protocol (see protocol.ts):
-//   on start  → posts {type: "ready"} or {type: "load-error", message}
-//   {id, source} → {id, result: <TraceResult JSON>} or {id, error}
+//   on start → posts {type: "ready"} or {type: "load-error", message}
+//   {id, kind, ...} → {id, result: <JSON string>} or {id, error}
+//
+// Layout in Pyodide's file system (mirrored by pyodide-check.mjs):
+//   /codelens/tracer.py, /codelens/practice.py, /codelens/practice/<data>
 
 import tracerSource from "../py/tracer.py?raw";
+import practiceSource from "../py/practice.py?raw";
 import { PYODIDE_INDEX_URL } from "./protocol";
-import type { TraceRequest, WorkerMessage } from "./protocol";
+import type { WorkerMessage, WorkerRequest } from "./protocol";
+
+// problems.json and the reference solutions, as text (a few KB).
+const practiceData = import.meta.glob("../../../shared/practice/*", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
 
 // Minimal local types for the parts of the Pyodide API used here.
 type PyodideFS = {
@@ -25,12 +37,15 @@ type PyodideModule = {
   }): Promise<PyodideAPI>;
 };
 type TraceJson = (source: string) => string;
+type PracticeTraceJson = (slug: string, source: string | null, argsJson: string) => string;
+type PracticeCheckJson = (slug: string, source: string, argsJson: string) => string;
+type Python = { traceJson: TraceJson; practiceTrace: PracticeTraceJson; practiceCheck: PracticeCheckJson };
 
 // The DOM lib is in scope (tsconfig is shared with the app), so describe the
 // worker global by hand instead of pulling in lib.webworker.
 type WorkerScope = {
   postMessage(message: WorkerMessage): void;
-  addEventListener(type: "message", listener: (ev: MessageEvent<TraceRequest>) => void): void;
+  addEventListener(type: "message", listener: (ev: MessageEvent<WorkerRequest>) => void): void;
 };
 const scope = self as unknown as WorkerScope;
 
@@ -40,7 +55,12 @@ function describe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-async function load(): Promise<TraceJson> {
+function callable<T>(value: unknown, name: string): T {
+  if (typeof value !== "function") throw new Error(`${name} is not callable`);
+  return value as T;
+}
+
+async function load(): Promise<Python> {
   const mod = (await import(/* @vite-ignore */ `${PYODIDE_INDEX_URL}pyodide.mjs`)) as PyodideModule;
   const pyodide = await mod.loadPyodide({
     indexURL: PYODIDE_INDEX_URL,
@@ -48,15 +68,34 @@ async function load(): Promise<TraceJson> {
     stdout: () => {},
     stderr: () => {},
   });
-  pyodide.FS.mkdirTree(TRACER_DIR);
+  pyodide.FS.mkdirTree(`${TRACER_DIR}/practice`);
   pyodide.FS.writeFile(`${TRACER_DIR}/tracer.py`, tracerSource, { encoding: "utf8" });
-  const fn = pyodide.runPython(
-    `import sys\nif ${JSON.stringify(TRACER_DIR)} not in sys.path:\n    sys.path.insert(0, ${JSON.stringify(TRACER_DIR)})\nimport tracer\ntracer.trace_json`,
+  pyodide.FS.writeFile(`${TRACER_DIR}/practice.py`, practiceSource, { encoding: "utf8" });
+  for (const [path, text] of Object.entries(practiceData)) {
+    const name = path.slice(path.lastIndexOf("/") + 1);
+    pyodide.FS.writeFile(`${TRACER_DIR}/practice/${name}`, text, { encoding: "utf8" });
+  }
+  pyodide.runPython(
+    `import sys\nif ${JSON.stringify(TRACER_DIR)} not in sys.path:\n    sys.path.insert(0, ${JSON.stringify(TRACER_DIR)})\nimport tracer, practice`,
   );
-  if (typeof fn !== "function") throw new Error("tracer.trace_json is not callable");
-  const traceJson = fn as TraceJson;
-  traceJson("pass\n"); // warm-up: the first real trace is then fast
-  return traceJson;
+  const py: Python = {
+    traceJson: callable<TraceJson>(pyodide.runPython("tracer.trace_json"), "tracer.trace_json"),
+    practiceTrace: callable<PracticeTraceJson>(pyodide.runPython("practice.trace_example_json"), "practice.trace_example_json"),
+    practiceCheck: callable<PracticeCheckJson>(pyodide.runPython("practice.check_json"), "practice.check_json"),
+  };
+  py.traceJson("pass\n"); // warm-up: the first real trace is then fast
+  return py;
+}
+
+function handle(py: Python, req: WorkerRequest): string {
+  switch (req.kind) {
+    case "trace":
+      return py.traceJson(req.source);
+    case "practice-trace":
+      return py.practiceTrace(req.slug, req.source, JSON.stringify(req.args));
+    case "practice-check":
+      return py.practiceCheck(req.slug, req.source, JSON.stringify(req.args));
+  }
 }
 
 const ready = load();
@@ -67,11 +106,12 @@ ready.then(
 );
 
 scope.addEventListener("message", (ev) => {
-  const { id, source } = ev.data;
+  const req = ev.data;
+  const { id } = req;
   ready.then(
-    (traceJson) => {
+    (py) => {
       try {
-        scope.postMessage({ id, result: traceJson(source) });
+        scope.postMessage({ id, result: handle(py, req) });
       } catch (err) {
         scope.postMessage({ id, error: describe(err) });
       }
