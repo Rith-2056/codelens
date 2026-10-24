@@ -154,7 +154,7 @@ Decisions (2026-10-24):
 |---|---|---|
 | 7 | Swap Claude for Gemini in `/api/explain` | done |
 | 8 | Pages and navigation, glassy iOS-style UI | done |
-| 9 | LeetCode problems with reference solutions | 9a, 9b-1, 9b-2 done; 9b-3 (playground cleanup) todo |
+| 9 | LeetCode problems with reference solutions | done |
 | 10 | Counterexample search in Pyodide | todo |
 | 11 | Three-level AI help (hint, explanation, possible fix) | todo |
 | 12 | Mistake categories and saved sessions | todo |
@@ -315,4 +315,23 @@ Decisions (2026-10-24):
 - **Noticed, not fixed:** at very narrow widths, long code lines in the editor
   wrap and push the line numbers out of step (from wave 2).
 - **Checks:** all green (216 pytest, 111 node tests, 88 vitest, typecheck,
+  build, bundle size).
+
+### Stage 9b-3: LeetCode names everywhere
+- **Tests written first:**
+  - the playground offers only Loop / Branch / Function, and no old Level 2
+    names appear (red: they were still there)
+  - the six Level 2 acceptance tests move to the problem pages, checking the
+    correct-solution viewer step by step with exact sequences from the real
+    reference runs
+- **Test fix, stated:** in Climbing Stairs, `ways` lives inside the method, so
+  the test reads its last value while the method runs, not at the final module
+  step.
+- **Code:**
+  - `lessons.ts` keeps only the three Level 1 examples
+  - the six old Level 2 scripts stay in `gen_fixtures.py` as test data
+  - `plan.md` acceptance tests and the structure rules are updated
+- **Bundle:** main JS 416 KB → 263 KB; each problem's reference run is its own
+  lazy chunk (11-85 KB).
+- **Checks:** all green (216 pytest, 111 node tests, 91 vitest, typecheck,
   build, bundle size).

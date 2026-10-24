@@ -94,6 +94,14 @@ describe("app shell", () => {
     expect(screen.getByRole("link", { name: /back to the problems/i }).getAttribute("href")).toBe("#/problems");
   });
 
+  it("the playground offers the three Level 1 examples only; interview problems live on the problem pages", async () => {
+    window.history.replaceState(null, "", "#/playground");
+    render(<App />);
+    const picker = screen.getAllByRole("group").find((g) => /Level 1/.test(g.textContent ?? ""))!;
+    expect([...picker.querySelectorAll("button")].map((b) => b.textContent?.replace("✓", "").trim())).toEqual(["Loop", "Branch", "Function"]);
+    expect(document.body.textContent).not.toMatch(/Level 2|Pair that adds up|Hops through a network/);
+  });
+
   it("keeps the visualizer for your own code on the playground page", async () => {
     render(<App />);
     await go("Your code");

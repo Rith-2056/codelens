@@ -69,10 +69,13 @@ No accounts, database, analytics, grading, multiplayer, package installation, fi
 - `while True: pass` ends as status "limit" in under 2 seconds (MAX_STEPS = 2000); editor stays usable.
 - `print(x)` with x undefined ends with the failing line highlighted and a NameError explanation.
 - With /api/explain offline, every step still has a deterministic explanation.
-- Pair that adds up: the hash map grows from empty to `{4: 0}` to `{4: 0, 9: 1}` (int keys shown as numbers) and the program prints `[1, 2]`.
-- Pair in a sorted list: `left` and `right` are drawn under the array cells and move inward until the program prints `[4, 6]`.
-- Hops through a network: the graph, the queue (front and back labeled), and the visited set update each step, ending with hops `{'A': 0, 'B': 1, 'C': 1, 'D': 2, 'E': 3}`.
-- How tall is the tree?: the tree is drawn from the `TreeNode` objects, the call stack grows and shrinks with each `max_depth` call, and the program prints `4`.
+- Level 2 checks run on each problem page's correct-solution viewer (example 1). Automated in `frontend/src/App.test.tsx`:
+  - Two Sum: the hash map grows `{}` → `{3: 0}` → `{3: 0, 8: 1}` → `{3: 0, 8: 1, 5: 2}` (int keys shown as numbers), and the answer is `[2, 3]`.
+  - Contains Duplicate: the set grows to `{1, 5, 8}`, and the answer is `True`.
+  - Two Sum II - Input Array Is Sorted: `left` and `right` are drawn under the cells and move inward, (0, 5) → (2, 3), and the answer is `[3, 4]`.
+  - Find if Path Exists in Graph: the graph, the queue (front and back labeled) and the visited badges update, and the answer is `True`.
+  - Maximum Depth of Binary Tree: the tree is drawn from the `TreeNode` objects, the call stack grows to 6 frames and back, and the answer is `4`.
+  - Climbing Stairs: the DP list fills to `[1, 1, 2, 3, 5, 8, 13]` with `i` under the current cell, and the answer is `13`.
 
 ## Architecture
 - Vite + React + TypeScript static site in `frontend/`.

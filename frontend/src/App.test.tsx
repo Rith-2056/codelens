@@ -3,7 +3,7 @@
 // need a real run (print(x), while True) are traced by the real CPython
 // tracer in test/acceptance-traces.mjs.
 import { afterEach, beforeEach, describe, expect, inject, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import axe from "axe-core";
 import type { TraceResult } from "./types/trace";
 import { lessons } from "./lessons";
@@ -24,9 +24,21 @@ vi.mock("./worker/traceClient", () => ({
     return () => {};
   },
   runTrace: (code: string) => runTrace(code),
+  // The problem pages' Run: report a correct answer and reuse the reference trace for "your" run.
+  checkPractice: async () => ({ correct: true, got: null, expected: null, error: null }),
+  tracePractice: async (slug: string) => practiceFixture(slug),
 }));
 
 import App from "./App";
+
+const practiceRaw = import.meta.glob("../../shared/fixtures/practice/*.json", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+function practiceFixture(slug: string): { program: string; trace: TraceResult } {
+  return JSON.parse(practiceRaw[`../../shared/fixtures/practice/${slug}.json`]!) as { program: string; trace: TraceResult };
+}
 
 beforeEach(() => {
   // The visualizer now lives on its own page (#/playground) since pages were added.
@@ -51,7 +63,6 @@ const stepInfo = () => {
 };
 const next = () => fireEvent.click(screen.getByRole("button", { name: "Next" }));
 const previous = () => fireEvent.click(screen.getByRole("button", { name: "Previous" }));
-const pick = (title: RegExp) => fireEvent.click(screen.getByRole("button", { name: title }));
 
 /** The value cell text of a variable in the Variables table, or undefined. */
 function variable(name: string): string | undefined {
@@ -64,15 +75,7 @@ function variable(name: string): string | undefined {
   return undefined;
 }
 const explanation = () => document.querySelector(".explanation-text")?.textContent?.trim() ?? "";
-const output = () => document.querySelector("pre.output")?.textContent ?? "";
 const currentLineLabel = () => document.querySelector(".code-line.current .line-label")?.textContent?.trim();
-/** Pointer names under each cell of the array labeled `name`. */
-function pointers(name: string): string[][] {
-  const list = screen.getByRole("list", { name: new RegExp(`^${name}: list`) });
-  return [...list.querySelectorAll(":scope > li")].map((li) =>
-    [...li.querySelectorAll(".pointer code")].map((c) => c.textContent ?? ""),
-  );
-}
 function toEnd(each?: () => void) {
   each?.();
   while (stepInfo().step < stepInfo().total) {
@@ -185,66 +188,118 @@ describe("errors and runaway loops (real tracer output)", () => {
 
 // ---- Level 2 -------------------------------------------------------------------
 
-describe("Level 2 lessons (plan.md acceptance)", () => {
-  it("Pair that adds up: the hash map grows {4: 0} then {4: 0, 9: 1}, and prints [1, 2]", () => {
+describe("Level 2 problems (plan.md acceptance, on each problem page)", () => {
+  /** Open a problem, run (mocked), reveal the correct solution, and return its viewer. */
+  async function referenceViewer(slug: string): Promise<HTMLElement> {
+    window.history.replaceState(null, "", `#/problems/${slug}`);
     render(<App />);
-    pick(/Pair that adds up/);
-    const seen: string[] = [];
-    toEnd(() => {
-      const v = variable("seen");
-      if (v !== undefined && seen[seen.length - 1] !== v) seen.push(v);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
     });
-    expect(seen).toEqual(["{}", "{4: 0}", "{4: 0, 9: 1}"]);
-    expect(output()).toBe("[1, 2]\n");
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /show the correct solution/i }));
+    });
+    return screen.findByRole("region", { name: "Correct solution's run" });
+  }
+  const inView = (view: HTMLElement) => ({
+    info: () => /^Step (\d+) of (\d+)/.exec(view.querySelector('input[type="range"]')!.getAttribute("aria-valuetext")!)!.slice(1).map(Number),
+    next: () => fireEvent.click(within(view).getByRole("button", { name: "Next" })),
+    variable: (name: string) => {
+      for (const row of view.querySelectorAll("table.vars tbody tr")) {
+        const cells = row.querySelectorAll("th, td");
+        if (cells[0]?.textContent?.trim() === name) return cells[1]?.textContent?.trim();
+      }
+      return undefined;
+    },
+    output: () => view.querySelector("pre.output")?.textContent ?? "",
+  });
+  function walk(view: HTMLElement, each: () => void) {
+    const v = inView(view);
+    each();
+    while (v.info()[0]! < v.info()[1]!) {
+      v.next();
+      each();
+    }
+  }
+  function changes(view: HTMLElement, read: () => string | undefined): string[] {
+    const out: string[] = [];
+    walk(view, () => {
+      const x = read();
+      if (x !== undefined && out[out.length - 1] !== x) out.push(x);
+    });
+    return out;
+  }
+
+  it("Two Sum: the hash map grows {} → {3: 0} → {3: 0, 8: 1} → {3: 0, 8: 1, 5: 2}, and the answer is [2, 3]", async () => {
+    const view = await referenceViewer("two-sum");
+    const v = inView(view);
+    expect(changes(view, () => v.variable("seen"))).toEqual(["{}", "{3: 0}", "{3: 0, 8: 1}", "{3: 0, 8: 1, 5: 2}"]);
+    expect(v.output()).toBe("[2, 3]\n");
   });
 
-  it("Pair in a sorted list: left and right move inward under the cells, and it prints [4, 6]", () => {
-    render(<App />);
-    pick(/Pair in a sorted list/);
-    const moves: string[] = [];
-    toEnd(() => {
-      if (!screen.queryByRole("list", { name: /^nums: list/ })) return;
-      const cells = pointers("nums");
+  it("Contains Duplicate: the set grows {5} → {1, 5} → {1, 5, 8}, and the answer is True", async () => {
+    const view = await referenceViewer("contains-duplicate");
+    const v = inView(view);
+    expect(changes(view, () => v.variable("seen"))).toEqual(["set()", "{5}", "{1, 5}", "{1, 5, 8}"]);
+    expect(v.output()).toBe("True\n");
+  });
+
+  it("Two Sum II: left and right move inward under the cells, and the answer is [3, 4]", async () => {
+    const view = await referenceViewer("two-sum-ii-input-array-is-sorted");
+    const moves = changes(view, () => {
+      const list = within(view).queryByRole("list", { name: /^numbers: list/ });
+      if (!list) return undefined;
+      const cells = [...list.querySelectorAll(":scope > li")].map((li) => [...li.querySelectorAll(".pointer code")].map((c) => c.textContent));
       const at = (p: string) => cells.findIndex((names) => names.includes(p));
-      const pos = `${at("left")},${at("right")}`;
-      if (at("left") >= 0 && at("right") >= 0 && moves[moves.length - 1] !== pos) moves.push(pos);
+      return at("left") >= 0 && at("right") >= 0 ? `${at("left")},${at("right")}` : undefined;
     });
     expect(moves).toEqual(["0,5", "0,4", "1,4", "1,3", "2,3"]);
-    expect(output()).toBe("[4, 6]\n");
+    expect(inView(view).output()).toBe("[3, 4]\n");
   });
 
-  it("Hops through a network: graph, queue front/back and visited update, ending with every hop count", () => {
-    render(<App />);
-    pick(/Hops through a network/);
+  it("Find if Path Exists in Graph: graph, queue front/back and visited badges update, and the answer is True", async () => {
+    const view = await referenceViewer("find-if-path-exists-in-graph");
     let sawGraph = false;
     let sawQueueEnds = false;
-    let sawVisitedBadge = false;
-    toEnd(() => {
-      sawGraph ||= !!screen.queryByRole("img", { name: /graph graph/i });
-      const q = screen.queryByRole("list", { name: /^queue: queue/ });
+    let sawVisited = false;
+    walk(view, () => {
+      sawGraph ||= !!within(view).queryByRole("img", { name: /graph graph: 5 nodes/i });
+      const q = within(view).queryByRole("list", { name: /^queue: queue/ });
       sawQueueEnds ||= !!q && /front/.test(q.textContent ?? "") && /back/.test(q.textContent ?? "");
-      const g = screen.queryByRole("list", { name: "graph as text" });
-      sawVisitedBadge ||= !!g && /in visited/.test(g.textContent ?? "");
+      const g = within(view).queryByRole("list", { name: "graph as text" });
+      sawVisited ||= !!g && /in visited/.test(g.textContent ?? "");
     });
-    expect([sawGraph, sawQueueEnds, sawVisitedBadge]).toEqual([true, true, true]);
-    expect(output()).toBe("{'A': 0, 'B': 1, 'C': 1, 'D': 2, 'E': 3}\n");
+    expect([sawGraph, sawQueueEnds, sawVisited]).toEqual([true, true, true]);
+    expect(inView(view).output()).toBe("True\n");
   });
 
-  it("How tall is the tree?: the tree is drawn, the call stack grows and shrinks, and it prints 4", () => {
-    render(<App />);
-    pick(/How tall is the tree/);
+  it("Maximum Depth of Binary Tree: the tree is drawn, the call stack grows to 6 and back, and the answer is 4", async () => {
+    const view = await referenceViewer("maximum-depth-of-binary-tree");
     const depths: number[] = [];
     let sawTree = false;
-    toEnd(() => {
-      sawTree ||= !!screen.queryByRole("img", { name: /tree from root.*6 nodes/i });
-      const stack = screen.getByRole("list", { name: /call stack/i });
-      // One card per frame: count only the list's own items, not lists inside the cards.
-      depths.push(stack.querySelectorAll(":scope > li").length);
+    walk(view, () => {
+      sawTree ||= !!within(view).queryByRole("img", { name: /tree from root.*6 nodes/i });
+      depths.push(within(view).getByRole("list", { name: /call stack/i }).querySelectorAll(":scope > li").length);
     });
     expect(sawTree).toBe(true);
     expect(Math.max(...depths)).toBe(6);
     expect(depths[depths.length - 1]).toBe(1);
-    expect(output()).toBe("4\n");
+    expect(inView(view).output()).toBe("4\n");
+  });
+
+  it("Climbing Stairs: the DP list fills to [1, 1, 2, 3, 5, 8, 13] with i under the cell, and the answer is 13", async () => {
+    const view = await referenceViewer("climbing-stairs");
+    const v = inView(view);
+    let sawPointer = false;
+    // `ways` lives inside climbStairs, so read its last value while the method is running.
+    const values = changes(view, () => {
+      const list = within(view).queryByRole("list", { name: /^ways: list/ });
+      sawPointer ||= !!list && [...list.querySelectorAll(".pointer code")].some((c) => c.textContent === "i");
+      return v.variable("ways");
+    });
+    expect(sawPointer).toBe(true);
+    expect(values[values.length - 1]).toBe("[1, 1, 2, 3, 5, 8, 13]");
+    expect(v.output()).toBe("13\n");
   });
 });
 
