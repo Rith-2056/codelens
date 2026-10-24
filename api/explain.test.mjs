@@ -1,18 +1,19 @@
 // Tests for /api/explain. Run from the repo root:
 //   node --test api/explain.test.mjs
 // Uses Node's built-in Request/Response; no framework needed.
-// No test calls the real Claude API: every LLM call goes through a fake.
+// No test calls the real Gemini API: every LLM call goes through a fake.
 
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
 // Belt and braces: even the default handler must never see a real key here.
+delete process.env.GEMINI_API_KEY;
 delete process.env.ANTHROPIC_API_KEY;
 
 import {
   handler,
   createHandler,
-  anthropicComplete,
+  geminiComplete,
   buildRequest,
   buildUserMessage,
   acceptReply,
@@ -21,13 +22,14 @@ import {
   MAX_CODE_SLICE_CHARS,
   MAX_REPLY_CHARS,
   MODEL,
-  FALLBACK_BETA,
   SYSTEM_PROMPT,
   USE_TEMPLATE,
   cacheKey,
+  fitUserMessage,
 } from "./explain.ts";
 import { explainStep } from "../frontend/src/explain/index.ts";
 import loop from "../shared/fixtures/loop.json" with { type: "json" };
+import tree from "../shared/fixtures/tree-height.json" with { type: "json" };
 
 const STEPS = loop.steps;
 // prev: total = 0, curr: total = 3, next line 3.
@@ -132,7 +134,7 @@ test("rejects bad shapes with 400", async () => {
 });
 
 test("enforces the payload cap with 413, before any LLM call", async () => {
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   const big = { curr: { ...STEPS[0], stdout: "x".repeat(MAX_PAYLOAD_BYTES) }, lang: "en" };
   const res = await h(req(big));
   assert.equal(res.status, 413);
@@ -140,7 +142,7 @@ test("enforces the payload cap with 413, before any LLM call", async () => {
 });
 
 test("enforces the codeSlice cap with 413, before any LLM call", async () => {
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   const over = await h(req(stepBody({ codeSlice: "x".repeat(MAX_CODE_SLICE_CHARS + 1) })));
   assert.equal(over.status, 413);
   assert.match((await over.json()).error, /codeSlice/);
@@ -167,7 +169,7 @@ test("the default export reads no key in tests and answers with the template", a
 // LLM path.
 
 test("no key: template, and the LLM is never built or called", async () => {
-  const llm = fakeLlm({ text: GOOD, stopReason: "end_turn" });
+  const llm = fakeLlm({ text: GOOD, finished: true });
   let made = 0;
   for (const key of [undefined, "", "   "]) {
     const h = createHandler({
@@ -186,7 +188,7 @@ test("no key: template, and the LLM is never built or called", async () => {
 });
 
 test("a grounded LLM reply is accepted with source llm", async () => {
-  const { h, llm, made } = llmHandler({ text: `  ${GOOD}\n`, stopReason: "end_turn" });
+  const { h, llm, made } = llmHandler({ text: `  ${GOOD}\n`, finished: true });
   const res = await h(req(stepBody()));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { text: GOOD, source: "llm" });
@@ -198,28 +200,26 @@ test("a grounded LLM reply is accepted with source llm", async () => {
 
 test("numbers from the code slice are allowed; invented numbers fall back to the template", async () => {
   // 2 is in the code slice ([3, 1, 2]) and in locals; fine.
-  const ok = await llmHandler({ text: "The list holds 3, 1 and 2, and total is now 3.", stopReason: "end_turn" })
+  const ok = await llmHandler({ text: "The list holds 3, 1 and 2, and total is now 3.", finished: true })
     .h(req(stepBody()));
   assert.equal((await ok.json()).source, "llm");
 
   // 7 is nowhere in the snapshots or code: a future/invented value.
   for (const text of ["total is now 3, and next it will be 7.", "This is step 5 of 11."]) {
-    const res = await llmHandler({ text, stopReason: "end_turn" }).h(req(stepBody()));
+    const res = await llmHandler({ text, finished: true }).h(req(stepBody()));
     assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" }, text);
   }
 });
 
-test("refusal and other non-normal stop reasons fall back to the template", async () => {
-  for (const stopReason of ["refusal", "max_tokens", "pause_turn", "tool_use", null]) {
-    const res = await llmHandler({ text: GOOD, stopReason }).h(req(stepBody()));
-    assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" }, String(stopReason));
-  }
+test("unfinished replies (blocked, failed, cut off) fall back to the template", async () => {
+  const res = await llmHandler({ text: GOOD, finished: false }).h(req(stepBody()));
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" });
 });
 
 test("empty, overlong and USE_TEMPLATE replies fall back to the template", async () => {
   for (const text of ["", "   \n ", "a".repeat(MAX_REPLY_CHARS + 1), USE_TEMPLATE]) {
-    const res = await llmHandler({ text, stopReason: "end_turn" }).h(req(stepBody()));
+    const res = await llmHandler({ text, finished: true }).h(req(stepBody()));
     assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" }, text.slice(0, 20));
   }
 });
@@ -265,7 +265,7 @@ test("API errors fall back to the template without leaking details", async () =>
 });
 
 test("cache: the same step and language calls the LLM once", async () => {
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   const a = await (await h(req(stepBody()))).json();
   const b = await (await h(req(stepBody()))).json();
   assert.deepEqual(a, { text: GOOD, source: "llm" });
@@ -284,7 +284,7 @@ test("cache: the same step and language calls the LLM once", async () => {
 });
 
 test("cache: different snapshots under the same key do not reuse the cached reply", async () => {
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" });
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
   await h(req(stepBody()));
   const poisoned = await h(req(stepBody({ curr: { ...CURR, locals: { ...CURR.locals, total: 99 } } })));
   assert.equal(llm.calls.length, 2);
@@ -294,7 +294,7 @@ test("cache: different snapshots under the same key do not reuse the cached repl
 
 test("failures are not cached, so a later request can still get an LLM reply", async () => {
   let n = 0;
-  const { h, llm } = llmHandler(() => (n++ === 0 ? { text: "", stopReason: "refusal" } : { text: GOOD, stopReason: "end_turn" }));
+  const { h, llm } = llmHandler(() => (n++ === 0 ? { text: "", finished: false } : { text: GOOD, finished: true }));
   assert.equal((await (await h(req(stepBody()))).json()).source, "template");
   assert.equal((await (await h(req(stepBody()))).json()).source, "llm");
   assert.equal(llm.calls.length, 2);
@@ -302,7 +302,7 @@ test("failures are not cached, so a later request can still get an LLM reply", a
 
 test("rate limit: 429 with the template text once a client's bucket is empty", async () => {
   let now = 0;
-  const { h, llm } = llmHandler({ text: GOOD, stopReason: "end_turn" }, {
+  const { h, llm } = llmHandler({ text: GOOD, finished: true }, {
     rateLimit: { capacity: 2, refillPerSecond: 1, now: () => now },
   });
   const ip = { "x-forwarded-for": "203.0.113.7, 10.0.0.1" };
@@ -363,67 +363,206 @@ test("the system prompt is static and states the rules", () => {
   }
 });
 
-test("the SDK request uses the model, low effort, a modest max_tokens and default refusal fallbacks", () => {
+test("the Gemini request: fast model, system instruction, small output, and nothing stored", () => {
   const body = buildRequest({ system: "S", user: "U" });
-  assert.equal(body.model, "claude-opus-5-5");
-  assert.equal(MODEL, "claude-opus-5-5");
-  assert.deepEqual(body.output_config, { effort: "low" });
-  assert.ok(body.max_tokens > 0 && body.max_tokens <= 2048);
-  assert.deepEqual(body.betas, [FALLBACK_BETA]);
-  assert.equal(FALLBACK_BETA, "server-side-fallback-2026-07-01");
-  assert.equal(body.fallbacks, "default");
-  assert.equal(body.thinking, undefined);
-  assert.equal(body.system, "S");
-  assert.deepEqual(body.messages, [{ role: "user", content: "U" }]);
+  // Per-step explanations are the most frequent call, so they use a lite model
+  // with its own free-tier quota (gemini-3.6-flash allows only 20 requests a
+  // day). gemini-3.1-flash-lite answered in 1.1 s live; 3.5-flash-lite was
+  // often over the 5 s budget. The help levels keep gemini-3.6-flash.
+  assert.equal(MODEL, "gemini-3.1-flash-lite");
+  assert.equal(body.model, MODEL);
+  assert.equal(body.system_instruction, "S");
+  assert.equal(body.input, "U");
+  assert.equal(body.store, false); // student code must not be kept on Google's side
+  assert.equal(body.stream, undefined);
+  assert.ok(body.generation_config.max_output_tokens > 0 && body.generation_config.max_output_tokens <= 1024);
+  assert.equal(body.generation_config.thinking_level, "minimal");
 });
 
-test("anthropicComplete passes timeout, low retries and the signal, and reads text by block type", async () => {
+test("geminiComplete passes the timeout and abort signal and reads output_text", async () => {
   const seen = [];
   const fakeClient = {
-    beta: {
-      messages: {
-        create: async (body, options) => {
-          seen.push({ body, options });
-          return {
-            stop_reason: "end_turn",
-            content: [
-              { type: "thinking", thinking: "", signature: "x" },
-              { type: "text", text: "partial from the declining model" },
-              { type: "fallback", from: { model: MODEL }, to: { model: "claude-opus-5" } },
-              { type: "text", text: "Hello " },
-              { type: "text", text: "there." },
-            ],
-          };
-        },
+    interactions: {
+      create: async (params, options) => {
+        seen.push({ params, options });
+        return { status: "completed", output_text: "Hello there." };
       },
     },
   };
   const signal = new AbortController().signal;
-  const reply = await anthropicComplete(fakeClient, 5_000)({ system: "S", user: "U" }, signal);
-  assert.deepEqual(reply, { text: "Hello there.", stopReason: "end_turn" });
-  assert.equal(seen[0].options.signal, signal);
-  assert.equal(seen[0].options.timeout, 5_000);
-  assert.ok(seen[0].options.maxRetries <= 1);
-  assert.equal(seen[0].body.model, MODEL);
+  const reply = await geminiComplete(fakeClient, 5_000)({ system: "S", user: "U" }, signal);
+  assert.deepEqual(reply, { text: "Hello there.", finished: true });
+  assert.equal(seen[0].options.timeout_ms, 5_000);
+  assert.equal(seen[0].options.fetch_options.signal, signal);
+  // No SDK retries: the first live run showed retries keep a timed-out call
+  // going for minutes (165 s) after the student already has the template.
+  assert.deepEqual(seen[0].options.retries, { strategy: "none" });
+  assert.equal(seen[0].params.model, MODEL);
 });
 
-test("anthropicComplete reports refusals so the handler can fall back", async () => {
-  const fakeClient = { beta: { messages: { create: async () => ({ stop_reason: "refusal", content: [] }) } } };
-  const reply = await anthropicComplete(fakeClient)({ system: "S", user: "U" }, new AbortController().signal);
-  assert.deepEqual(reply, { text: "", stopReason: "refusal" });
-  const body = { prev: PREV, curr: CURR, lang: "en", codeSlice: CODE };
-  assert.equal(acceptReply(reply, body), null);
+test("geminiComplete reports unfinished interactions so the handler can fall back", async () => {
+  for (const status of ["incomplete", "failed", "cancelled", "budget_exceeded", "requires_action"]) {
+    const fakeClient = { interactions: { create: async () => ({ status, output_text: "half an ans" }) } };
+    const reply = await geminiComplete(fakeClient)({ system: "S", user: "U" }, new AbortController().signal);
+    assert.equal(reply.finished, false, status);
+    const body = { prev: PREV, curr: CURR, lang: "en", codeSlice: CODE };
+    assert.equal(acceptReply(reply, body), null, status);
+  }
+  const empty = { interactions: { create: async () => ({ status: "completed" }) } };
+  const reply = await geminiComplete(empty)({ system: "S", user: "U" }, new AbortController().signal);
+  assert.deepEqual(reply, { text: "", finished: true });
+});
+
+test("the default key comes from GEMINI_API_KEY, never ANTHROPIC_API_KEY", async () => {
+  const llm = fakeLlm({ text: GOOD, finished: true });
+  const made = [];
+  const h = createHandler({ makeComplete: (key) => (made.push(key), llm.complete) });
+  try {
+    process.env.ANTHROPIC_API_KEY = "anthropic-test-key";
+    let res = await h(req(stepBody()));
+    assert.deepEqual(await res.json(), { text: TEMPLATE_EN, source: "template" });
+    assert.equal(llm.calls.length, 0);
+    process.env.GEMINI_API_KEY = "gemini-test-key";
+    res = await h(req(stepBody({ stepIndex: 77 })));
+    assert.equal((await res.json()).source, "llm");
+    assert.deepEqual(made, ["gemini-test-key"]);
+  } finally {
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+  }
+});
+
+test("api/package.json pins the Gemini SDK and no longer ships the Anthropic SDK", async () => {
+  const { readFileSync } = await import("node:fs");
+  const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+  assert.match(pkg.dependencies["@google/genai"] ?? "", /^\d+\.\d+\.\d+$/);
+  assert.equal(pkg.dependencies["@anthropic-ai/sdk"], undefined);
 });
 
 test("the handler logs nothing, even on errors with code in them", async () => {
   // The afterEach console spy asserts nothing was logged; this exercises every path once.
   const secret = 'password = "hunter2"  # student code';
   const body = stepBody({ codeSlice: secret });
-  await llmHandler({ text: GOOD, stopReason: "end_turn" }).h(req(body));
-  await llmHandler({ text: "", stopReason: "refusal" }).h(req(body));
+  await llmHandler({ text: GOOD, finished: true }).h(req(body));
+  await llmHandler({ text: "", finished: false }).h(req(body));
   await llmHandler(() => Promise.reject(new Error(secret))).h(req(body));
   await llmHandler(() => new Promise(() => {}), { timeoutMs: 10 }).h(req(body));
   await noKeyHandler(req(body));
   await noKeyHandler(req("not json"));
   assert.deepEqual(logged, []);
+});
+
+// ---------------------------------------------------------------------------
+// Wave 3: steps with heap and stack (contract 2026-10-24).
+
+/** A recursive call from the tree lesson: heap objects and several frames. */
+function recursiveCallIndex() {
+  const i = tree.steps.findIndex((st, k) => k > 0 && st.event === "call" && st.functionName === "max_depth"
+    && st.stack.filter((f) => f.functionName === "max_depth").length >= 2);
+  assert.ok(i > 0, "tree-height fixture has a recursive call");
+  return i;
+}
+
+function treeBody(extra = {}) {
+  const i = recursiveCallIndex();
+  return { prev: tree.steps[i - 1], curr: tree.steps[i], lang: "en", codeSlice: "", codeHash: tree.codeHash, stepIndex: i, ...extra };
+}
+
+test("accepts steps with heap and stack, and old steps without them", async () => {
+  const body = treeBody();
+  for (const lang of ["en", "es"]) {
+    const res = await post({ ...body, lang });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { text: explainStep(body.prev, body.curr, lang), source: "template" });
+  }
+  const { heap: _h, stack: _s, ...old } = CURR;
+  assert.equal((await post({ curr: old, lang: "en" })).status, 200);
+});
+
+test("rejects malformed heap or stack with 400", async () => {
+  const bad = [
+    { ...CURR, heap: [] },
+    { ...CURR, heap: { o1: { id: "o1", type: "T" } } },
+    { ...CURR, stack: {} },
+    { ...CURR, stack: [{ functionName: "f", frameId: "f1", line: "3", locals: {} }] },
+    { ...CURR, stack: [{ functionName: "f", frameId: "f1", line: 3 }] },
+  ];
+  for (const curr of bad) {
+    const res = await post({ curr, lang: "en" });
+    assert.equal(res.status, 400, JSON.stringify(curr.heap ?? curr.stack));
+  }
+});
+
+test("the user message sends heap and stack (no frame ids), and the prompt explains the tagged forms", () => {
+  const body = treeBody();
+  const msg = buildUserMessage(body, "ref");
+  const data = JSON.parse(msg.slice(msg.indexOf("{"), msg.lastIndexOf("}") + 1));
+  for (const [snap, step] of [[data.previous, body.prev], [data.current, body.curr]]) {
+    assert.deepEqual(snap.heap, step.heap);
+    assert.equal(snap.stack.length, step.stack.length);
+    snap.stack.forEach((f, k) => {
+      assert.equal(f.functionName, step.stack[k].functionName);
+      assert.deepEqual(f.locals, step.stack[k].locals);
+      assert.equal(f.frameId, undefined, "frame ids are not sent");
+    });
+  }
+  for (const phrase of [/__dict/, /__set/, /__deque/, /__ref/, /stack/, /heap/, /Never write the tags/]) {
+    assert.match(SYSTEM_PROMPT, phrase);
+  }
+});
+
+test("payload cap: other stack frames are trimmed first, then the heap; nothing fits means no LLM call", async () => {
+  const base = treeBody();
+  // Give the outer frames heavy locals so each trim level is smaller than the last.
+  const heavy = (step) => ({
+    ...step,
+    stack: step.stack.map((f) => (f.frameId === step.frameId ? f : { ...f, locals: { ...f.locals, pad: "p".repeat(3000) } })),
+  });
+  const body = { ...base, prev: heavy(base.prev), curr: heavy(base.curr) };
+  const bytes = (l) => new TextEncoder().encode(buildUserMessage(body, "ref", l)).byteLength;
+  const sizes = [0, 1, 2, 3].map(bytes);
+  for (let l = 1; l < 4; l++) assert.ok(sizes[l] < sizes[l - 1], `level ${l} is smaller: ${sizes}`);
+
+  const parse = (msg) => JSON.parse(msg.slice(msg.indexOf("{"), msg.lastIndexOf("}") + 1));
+  assert.equal(fitUserMessage(body, "ref", sizes[0]), buildUserMessage(body, "ref", 0));
+
+  const one = parse(fitUserMessage(body, "ref", sizes[1]));
+  const last = one.current.stack.length - 1;
+  assert.ok(one.current.stack.length > 1);
+  one.current.stack.slice(0, last).forEach((f) => assert.equal(f.locals, undefined, "outer frames lose their locals"));
+  assert.deepEqual(one.current.stack[last].locals, body.curr.locals, "the current frame keeps its locals");
+  assert.ok(one.current.heap !== undefined, "heap kept at level 1");
+
+  const two = parse(fitUserMessage(body, "ref", sizes[2]));
+  assert.equal(two.current.stack.length, 1, "only the current frame");
+  assert.equal(two.current.stack[0].functionName, body.curr.functionName);
+  assert.ok(two.current.heap !== undefined, "heap kept at level 2");
+
+  const three = parse(fitUserMessage(body, "ref", sizes[3]));
+  assert.equal(three.current.heap, undefined, "heap dropped last");
+  assert.deepEqual(three.current.locals, body.curr.locals, "locals always kept");
+
+  assert.equal(fitUserMessage(body, "ref", sizes[3] - 1), null);
+
+  // Through the handler: a body under MAX_PAYLOAD_BYTES whose escaped message can't fit.
+  const angle = "<".repeat(12_000);
+  const huge = { ...stepBody(), prev: { ...PREV, stdout: angle }, curr: { ...CURR, stdout: angle + "\n" } };
+  assert.ok(new TextEncoder().encode(JSON.stringify(huge)).byteLength < MAX_PAYLOAD_BYTES);
+  const { h, llm } = llmHandler({ text: GOOD, finished: true });
+  const res = await h(req(huge));
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).source, "template");
+  assert.equal(llm.calls.length, 0, "the LLM is not called with an oversized prompt");
+});
+
+test("an LLM reply may use numbers from heap fields and stack locals, but never raw tags", async () => {
+  const body = treeBody();
+  const node = body.curr.heap[body.curr.locals.node.__ref];
+  const ok = `max_depth calls itself again on the node with value ${node.fields.val}. The new call hasn't run yet.`;
+  const { h } = llmHandler({ text: ok, finished: true });
+  assert.deepEqual(await (await h(req(body))).json(), { text: ok, source: "llm" });
+
+  for (const text of [`node is {"__ref": "o2"} now.`, "seen is a __dict with one key.", "The __set__ grew."]) {
+    assert.equal(acceptReply({ text, finished: true }, body), null, text);
+  }
 });

@@ -15,6 +15,9 @@ export type Lesson = {
   // (trailing newline included), so the codeHash matches.
   source: string;
   fixture: TraceResult; // precomputed trace, shown before Python has loaded
+  level: 1 | 2; // the picker groups lessons by level
+  pattern?: string; // optional: the technique the example teaches
+  statement?: { en: string; es: string }; // optional: a problem statement
 };
 
 function parseFixture(name: string, text: string): TraceResult {
@@ -34,6 +37,7 @@ export const loopLesson: Lesson = {
   title: "Loop: adding up a list",
   short: "Loop",
   source: "numbers = [3, 1, 2]\ntotal = 0\nfor n in numbers:\n    total += n\n",
+  level: 1,
   fixture: parseFixture("loop.json", loopFixtureText),
 };
 
@@ -43,6 +47,7 @@ export const branchLesson: Lesson = {
   short: "Branch",
   source:
     'temperature = 30\nif temperature > 25:\n    advice = "Wear a T-shirt"\nelse:\n    advice = "Bring a jacket"\nprint(advice)\n',
+  level: 1,
   fixture: parseFixture("branch.json", branchFixtureText),
 };
 
@@ -52,9 +57,13 @@ export const functionLesson: Lesson = {
   short: "Function",
   source:
     "def add(a, b):\n    result = a + b\n    return result\n\ntotal = add(2, 3)\nprint(total)\n",
+  level: 1,
   fixture: parseFixture("function.json", functionFixtureText),
 };
 
+// The playground's examples, in teaching order. The interview problems
+// (Level 2) live on their own pages, under their LeetCode names: see
+// problems.ts.
 export const lessons: readonly Lesson[] = [loopLesson, branchLesson, functionLesson];
 
 export function lessonById(id: LessonId): Lesson {

@@ -1,14 +1,16 @@
 // POST /api/explain: serverless handler (Web-standard Request/Response).
 //
 // Returns a one-or-two-sentence explanation of one trace step. When
-// ANTHROPIC_API_KEY is set (server env only, never sent to the browser) it asks
-// Claude to word the explanation; otherwise, and on ANY failure, it returns the
+// GEMINI_API_KEY is set (server env only, never sent to the browser) it asks
+// Gemini to word the explanation; otherwise, and on ANY failure, it returns the
 // deterministic template from explainStep. It never logs anything, so student
 // code and snapshots never reach a log.
 //
 // Request body (JSON):
 //   { "prev"?: TraceStep | null, "curr": TraceStep, "lang": "en" | "es",
 //     "codeSlice"?: string, "codeHash"?: string, "stepIndex"?: number }
+// Steps follow the frozen contract (2026-10-24), including `heap` and
+// `stack`; older steps without them are still accepted.
 // Response 200: { "text": string, "source": "llm" | "template" }
 // Response 429: { "text": <template>, "source": "template" } (rate limited)
 // Errors: 405 (not POST), 413 (body over MAX_PAYLOAD_BYTES or codeSlice over
@@ -17,7 +19,7 @@
 // Student code never runs here: this endpoint only describes snapshots the
 // browser already recorded.
 
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 import type { TraceStep } from "../frontend/src/types/trace.ts";
 import { explainStep, inventedNumbers, type Lang } from "../frontend/src/explain/index.ts";
 
@@ -30,11 +32,12 @@ export const LLM_TIMEOUT_MS = 5_000;
 /** Longest LLM reply accepted (templates stay well under this). */
 export const MAX_REPLY_CHARS = 400;
 
-export const MODEL = "claude-opus-5-5";
-/** Thinking is always on for this model and counts toward max_tokens; the reply itself is 1-2 sentences. */
-export const MAX_TOKENS = 1024;
-/** Server-side refusal fallbacks, `fallbacks: "default"` form. */
-export const FALLBACK_BETA = "server-side-fallback-2026-07-01";
+/** The whole call must fit in LLM_TIMEOUT_MS. Measured live: gemini-3.1-flash-lite
+ *  1.1 s; gemini-3.5-flash-lite 0.9-5.9 s. A lite model because this is the most
+ *  frequent call and gemini-3.6-flash (kept for help) allows only 20 free requests a day. */
+export const MODEL = "gemini-3.1-flash-lite";
+/** The reply is one or two sentences. */
+export const MAX_OUTPUT_TOKENS = 512;
 /** The model may answer this instead of an explanation; we then use the template. */
 export const USE_TEMPLATE = "USE_TEMPLATE";
 
@@ -60,6 +63,9 @@ Each request contains one JSON object between <step_data> and </step_data>. Its 
 - event: "line" or "call" means the highlighted line is the next line to run and has NOT run yet. "return" means the function is finishing and giving back its result. "exception" means the highlighted line raised an error.
 - highlightedLine: the line number the student sees highlighted.
 - previous and current: snapshots of the program before and at this step (variables, everything printed so far, return value, error). previous is null on the first step.
+  - stack lists the active function calls, outermost first; the last entry is the current call.
+  - Values use tagged forms: {"__dict": [[key, value], ...]} is a dictionary, {"__set": [...]} is a set, {"__deque": [...]} is a queue listed front first, and {"__ref": id} is an object stored in heap under that id. {"__type__": name} is a value that is not shown.
+  - Describe these the way Python shows them (for example {4: 0} or TreeNode(val=2)). Never write the tags, heap ids, or how deep the stack is as a number.
 - code: a few source lines around the previous and current lines.
 - reference: a correct, plain explanation of this step written by CodeLens.
 
@@ -77,55 +83,57 @@ Answer directly without deliberating.`;
 // LLM seam. Tests inject a fake `Complete`; production wraps the SDK client.
 
 export type LlmPrompt = { system: string; user: string };
-export type LlmReply = { text: string; stopReason: string | null };
+/** `finished` is false when the model stopped early (blocked, failed, cut off). */
+export type LlmReply = { text: string; finished: boolean };
 export type Complete = (prompt: LlmPrompt, signal: AbortSignal) => Promise<LlmReply>;
 
-type BetaCreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
-type BetaMessage = Anthropic.Beta.Messages.BetaMessage;
+export type InteractionParams = {
+  model: string;
+  input: string;
+  system_instruction: string;
+  store: false;
+  generation_config: { max_output_tokens: number; thinking_level: "minimal" | "low" };
+};
+type InteractionOptions = {
+  timeout_ms: number;
+  fetch_options: { signal: AbortSignal };
+  retries: { strategy: "none" };
+};
 
-/** The part of the Anthropic client this file uses (so tests can pass a fake). */
-export type MessagesClient = {
-  beta: {
-    messages: {
-      create(
-        body: BetaCreateParams,
-        options?: { signal?: AbortSignal; timeout?: number; maxRetries?: number },
-      ): PromiseLike<BetaMessage>;
-    };
+/** The part of the Gemini client this file uses (so tests can pass a fake). */
+export type InteractionsClient = {
+  interactions: {
+    create(params: InteractionParams, options?: InteractionOptions): PromiseLike<{ status: string; output_text?: string }>;
   };
 };
 
-/** The exact request body sent to the Messages API (exported for tests). */
-export function buildRequest(prompt: LlmPrompt): BetaCreateParams {
+/** The exact request sent to the Interactions API (exported for tests). */
+export function buildRequest(prompt: LlmPrompt): InteractionParams {
   return {
     model: MODEL,
-    max_tokens: MAX_TOKENS,
-    betas: [FALLBACK_BETA],
-    fallbacks: "default",
-    output_config: { effort: "low" },
-    system: prompt.system,
-    messages: [{ role: "user", content: prompt.user }],
+    input: prompt.user,
+    system_instruction: prompt.system,
+    // Never keep student code or snapshots on Google's side.
+    store: false,
+    generation_config: { max_output_tokens: MAX_OUTPUT_TOKENS, thinking_level: "minimal" },
   };
 }
 
-/** Wrap an Anthropic client as a `Complete`. */
-export function anthropicComplete(client: MessagesClient, timeoutMs: number = LLM_TIMEOUT_MS): Complete {
+/** Wrap a Gemini client as a `Complete`. `build` makes the request (other endpoints use other models). */
+export function geminiComplete(
+  client: InteractionsClient,
+  timeoutMs: number = LLM_TIMEOUT_MS,
+  build: (prompt: LlmPrompt) => InteractionParams = buildRequest,
+): Complete {
   return async (prompt, signal) => {
-    const msg = await client.beta.messages.create(buildRequest(prompt), {
-      signal,
-      timeout: timeoutMs,
-      // At most one quick retry; the signal still caps the whole call at timeoutMs.
-      maxRetries: 1,
+    const interaction = await client.interactions.create(build(prompt), {
+      timeout_ms: timeoutMs,
+      fetch_options: { signal },
+      // No SDK retries: they kept a timed-out call running for minutes in the
+      // live check. The handler's deadline and template already cover failures.
+      retries: { strategy: "none" },
     });
-    // After a server-side fallback, only text after the last fallback block
-    // belongs to the model that finished the turn.
-    let start = 0;
-    msg.content.forEach((b, i) => {
-      if (b.type === "fallback") start = i + 1;
-    });
-    let text = "";
-    for (const b of msg.content.slice(start)) if (b.type === "text") text += b.text;
-    return { text, stopReason: msg.stop_reason };
+    return { text: interaction.output_text ?? "", finished: interaction.status === "completed" };
   };
 }
 
@@ -141,7 +149,8 @@ type Body = {
   stepIndex?: number;
 };
 
-function json(status: number, data: unknown): Response {
+/** A JSON response that is never cached. */
+export function json(status: number, data: unknown): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
@@ -152,7 +161,25 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Minimal shape check against the frozen TraceStep contract. */
+function isFrame(v: unknown): boolean {
+  return (
+    isRecord(v) &&
+    typeof v.functionName === "string" &&
+    typeof v.frameId === "string" &&
+    typeof v.line === "number" &&
+    isRecord(v.locals)
+  );
+}
+
+function isHeap(v: unknown): boolean {
+  if (!isRecord(v)) return false;
+  for (const obj of Object.values(v)) {
+    if (!isRecord(obj) || typeof obj.id !== "string" || typeof obj.type !== "string" || !isRecord(obj.fields)) return false;
+  }
+  return true;
+}
+
+/** Minimal shape check against the frozen TraceStep contract. heap/stack may be missing (older clients). */
 function isStep(v: unknown): v is TraceStep {
   if (!isRecord(v)) return false;
   if (typeof v.index !== "number" || typeof v.line !== "number" || typeof v.depth !== "number") return false;
@@ -162,6 +189,8 @@ function isStep(v: unknown): v is TraceStep {
   if (v.error !== undefined) {
     if (!isRecord(v.error) || typeof v.error.type !== "string" || typeof v.error.message !== "string") return false;
   }
+  if (v.heap !== undefined && !isHeap(v.heap)) return false;
+  if (v.stack !== undefined && !(Array.isArray(v.stack) && v.stack.every(isFrame))) return false;
   return true;
 }
 
@@ -190,7 +219,7 @@ function parseBody(raw: unknown): Body | string {
 }
 
 /** Read the body as text, stopping as soon as it exceeds `cap` bytes. */
-async function readCapped(request: Request, cap: number): Promise<string | null> {
+export async function readCapped(request: Request, cap: number): Promise<string | null> {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > cap) return null;
   if (request.body === null) return "";
@@ -219,8 +248,31 @@ async function readCapped(request: Request, cap: number): Promise<string | null>
 // ---------------------------------------------------------------------------
 // Prompt.
 
+/**
+ * How much of the stack and heap goes to the model, from most to least:
+ * 0 everything; 1 frames other than the current one lose their locals;
+ * 2 only the current frame is sent; 3 the heap is left out too.
+ */
+export const TRIM_LEVELS = [0, 1, 2, 3] as const;
+export type TrimLevel = (typeof TRIM_LEVELS)[number];
+
+function viewStack(step: TraceStep, level: TrimLevel): Record<string, unknown>[] {
+  const stack = Array.isArray(step.stack) ? step.stack : [];
+  let current = stack.findIndex((f) => f.frameId === step.frameId);
+  if (current === -1) current = stack.length - 1;
+  const out: Record<string, unknown>[] = [];
+  stack.forEach((f, i) => {
+    const isCurrent = i === current;
+    if (level >= 2 && !isCurrent) return;
+    const frame: Record<string, unknown> = { functionName: f.functionName, line: f.line };
+    if (isCurrent || level === 0) frame.locals = f.locals;
+    out.push(frame);
+  });
+  return out;
+}
+
 /** The snapshot fields the model may use. index/depth/frameId are not number sources, so they are left out. */
-function view(step: TraceStep | undefined): Record<string, unknown> | null {
+function view(step: TraceStep | undefined, level: TrimLevel = 0): Record<string, unknown> | null {
   if (step === undefined) return null;
   const out: Record<string, unknown> = {
     line: step.line,
@@ -231,17 +283,19 @@ function view(step: TraceStep | undefined): Record<string, unknown> | null {
   };
   if (step.returnValue !== undefined) out.returnValue = step.returnValue;
   if (step.error !== undefined) out.error = step.error;
+  out.stack = viewStack(step, level);
+  if (level < 3) out.heap = step.heap !== null && typeof step.heap === "object" ? step.heap : {};
   return out;
 }
 
 /** The user message. All student-controlled text is JSON-encoded with < > & escaped, so it cannot close the tag. */
-export function buildUserMessage(body: Body, reference: string): string {
+export function buildUserMessage(body: Body, reference: string, level: TrimLevel = 0): string {
   const data = {
     language: body.lang === "es" ? "Spanish" : "English",
     event: body.curr.event,
     highlightedLine: body.curr.line,
-    previous: view(body.prev),
-    current: view(body.curr),
+    previous: view(body.prev, level),
+    current: view(body.curr, level),
     code: body.codeSlice,
     reference,
   };
@@ -252,12 +306,29 @@ export function buildUserMessage(body: Body, reference: string): string {
   return `Explain this step for the student.\n<step_data>\n${encoded}\n</step_data>`;
 }
 
-/** Accept an LLM reply only if it is short, non-empty and invents no numbers. */
+/**
+ * The user message at the least trimming that fits MAX_PAYLOAD_BYTES (UTF-8),
+ * trimming other stack frames first, then the heap. Null if nothing fits.
+ */
+export function fitUserMessage(body: Body, reference: string, maxBytes: number = MAX_PAYLOAD_BYTES): string | null {
+  const enc = new TextEncoder();
+  for (const level of TRIM_LEVELS) {
+    const msg = buildUserMessage(body, reference, level);
+    if (enc.encode(msg).byteLength <= maxBytes) return msg;
+  }
+  return null;
+}
+
+/** Raw snapshot tags must never reach the student. */
+const RAW_TAG = /__(?:dict|set|deque|ref|type|len)(?:__)?(?![A-Za-z0-9])|\{"__/;
+
+/** Accept an LLM reply only if it is short, non-empty, shows no raw tags and invents no numbers. */
 export function acceptReply(reply: LlmReply, body: Body): string | null {
-  if (reply.stopReason !== "end_turn") return null; // refusal, max_tokens, pause_turn, ...
+  if (!reply.finished) return null; // blocked, failed, cut off, ...
   const text = reply.text.replace(/\s+/g, " ").trim();
   if (text === "" || text.length > MAX_REPLY_CHARS) return null;
   if (text.includes(USE_TEMPLATE)) return null;
+  if (RAW_TAG.test(text)) return null;
   if (inventedNumbers(text, body.prev, body.curr, [body.codeSlice]).length > 0) return null;
   return text;
 }
@@ -346,18 +417,19 @@ export function clientId(request: Request): string {
 // ---------------------------------------------------------------------------
 // Handler.
 
-function envApiKey(): string | undefined {
+/** GEMINI_API_KEY from the server environment, or undefined. */
+export function envApiKey(): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  const key = env?.ANTHROPIC_API_KEY;
+  const key = env?.GEMINI_API_KEY;
   return key !== undefined && key.trim() !== "" ? key : undefined;
 }
 
 function sdkComplete(apiKey: string): Complete {
-  return anthropicComplete(new Anthropic({ apiKey, timeout: LLM_TIMEOUT_MS, maxRetries: 1 }));
+  return geminiComplete(new GoogleGenAI({ apiKey }));
 }
 
 export type HandlerOptions = {
-  /** Server-side key lookup; default reads process.env.ANTHROPIC_API_KEY on each request. */
+  /** Server-side key lookup; default reads process.env.GEMINI_API_KEY on each request. */
   getApiKey?: () => string | undefined;
   /** Build the LLM call for a key; default wraps the official SDK. */
   makeComplete?: (apiKey: string) => Complete;
@@ -367,7 +439,7 @@ export type HandlerOptions = {
 };
 
 /** Run `complete` with a hard deadline, even if it ignores the abort signal. */
-async function withDeadline(complete: Complete, prompt: LlmPrompt, ms: number): Promise<LlmReply | null> {
+export async function withDeadline(complete: Complete, prompt: LlmPrompt, ms: number): Promise<LlmReply | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<null>((resolve) => {
@@ -437,11 +509,9 @@ export function createHandler(options: HandlerOptions = {}): (request: Request) 
       if (completeFor === undefined || completeFor.key !== apiKey) {
         completeFor = { key: apiKey, complete: makeComplete(apiKey) };
       }
-      const reply = await withDeadline(
-        completeFor.complete,
-        { system: SYSTEM_PROMPT, user: buildUserMessage(body, reference) },
-        timeoutMs,
-      );
+      const user = fitUserMessage(body, reference);
+      if (user === null) return json(200, template);
+      const reply = await withDeadline(completeFor.complete, { system: SYSTEM_PROMPT, user }, timeoutMs);
       const text = reply === null ? null : acceptReply(reply, body);
       if (text === null) return json(200, template);
       if (key !== undefined) cache.set(key, fp, text);

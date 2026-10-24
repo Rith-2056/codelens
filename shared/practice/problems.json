@@ -1,0 +1,255 @@
+{
+  "two-sum": {
+    "method": "twoSum",
+    "params": ["nums", "target"],
+    "compare": "same-items",
+    "examples": [
+      {"args": [[3, 8, 5, 1], 6], "expected": [2, 3]},
+      {"args": [[4, 4], 8], "expected": [0, 1]},
+      {"args": [[-2, 7, 11, 5], 9], "expected": [0, 2]}
+    ]
+  },
+  "contains-duplicate": {
+    "method": "containsDuplicate",
+    "params": ["nums"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[5, 1, 8, 1, 3]], "expected": true},
+      {"args": [[2, 9, 4]], "expected": false},
+      {"args": [[7]], "expected": false}
+    ]
+  },
+  "valid-anagram": {
+    "method": "isAnagram",
+    "params": ["s", "t"],
+    "compare": "exact",
+    "examples": [
+      {"args": ["night", "thing"], "expected": true},
+      {"args": ["apple", "paper"], "expected": false},
+      {"args": ["ab", "a"], "expected": false}
+    ]
+  },
+  "product-of-array-except-self": {
+    "method": "productExceptSelf",
+    "params": ["nums"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[2, 3, 4, 5]], "expected": [60, 40, 30, 24]},
+      {"args": [[1, 0, 3]], "expected": [0, 3, 0]},
+      {"args": [[-1, 2, -3]], "expected": [-6, 3, -2]}
+    ]
+  },
+  "squares-of-a-sorted-array": {
+    "method": "sortedSquares",
+    "params": ["nums"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[-5, -1, 0, 2, 6]], "expected": [0, 1, 4, 25, 36]},
+      {"args": [[-3, -2]], "expected": [4, 9]},
+      {"args": [[1, 4]], "expected": [1, 16]}
+    ]
+  },
+  "two-sum-ii-input-array-is-sorted": {
+    "method": "twoSum",
+    "params": ["numbers", "target"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[1, 3, 4, 6, 8, 11], 10], "expected": [3, 4]},
+      {"args": [[-3, 0, 2, 5], -1], "expected": [1, 3]},
+      {"args": [[1, 2], 3], "expected": [1, 2]}
+    ]
+  },
+  "container-with-most-water": {
+    "method": "maxArea",
+    "params": ["height"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[2, 7, 4, 3, 8, 1]], "expected": 21},
+      {"args": [[3, 3]], "expected": 3},
+      {"args": [[1, 5, 2]], "expected": 2}
+    ]
+  },
+  "best-time-to-buy-and-sell-stock": {
+    "method": "maxProfit",
+    "params": ["prices"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[8, 2, 6, 1, 5, 9]], "expected": 8},
+      {"args": [[9, 7, 4, 1]], "expected": 0},
+      {"args": [[3]], "expected": 0}
+    ]
+  },
+  "maximum-average-subarray-i": {
+    "method": "findMaxAverage",
+    "params": ["nums", "k"],
+    "compare": "close",
+    "examples": [
+      {"args": [[2, -4, 7, 1, 3, 5], 3], "expected": 3.6666666666666665},
+      {"args": [[4, 0, 6], 1], "expected": 6.0},
+      {"args": [[-2, -7, -1, -9], 2], "expected": -4.0}
+    ]
+  },
+  "minimum-size-subarray-sum": {
+    "method": "minSubArrayLen",
+    "params": ["target", "nums"],
+    "compare": "exact",
+    "examples": [
+      {"args": [9, [2, 4, 1, 5, 3]], "expected": 3},
+      {"args": [4, [1, 4, 4]], "expected": 1},
+      {"args": [20, [1, 2, 3]], "expected": 0}
+    ]
+  },
+  "binary-search": {
+    "method": "search",
+    "params": ["nums", "target"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[-3, 0, 4, 7, 10, 15], 7], "expected": 3},
+      {"args": [[2, 5, 9], 4], "expected": -1},
+      {"args": [[6], 6], "expected": 0}
+    ]
+  },
+  "search-insert-position": {
+    "method": "searchInsert",
+    "params": ["nums", "target"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[1, 4, 6, 9], 6], "expected": 2},
+      {"args": [[1, 4, 6, 9], 5], "expected": 2},
+      {"args": [[1, 4, 6, 9], 10], "expected": 4}
+    ]
+  },
+  "find-minimum-in-rotated-sorted-array": {
+    "method": "findMin",
+    "params": ["nums"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[5, 7, 9, 1, 3]], "expected": 1},
+      {"args": [[2, 4, 6, 8]], "expected": 2},
+      {"args": [[8, 1]], "expected": 1}
+    ]
+  },
+  "valid-parentheses": {
+    "method": "isValid",
+    "params": ["s"],
+    "compare": "exact",
+    "examples": [
+      {"args": ["([]{})"], "expected": true},
+      {"args": ["{[}]"], "expected": false},
+      {"args": ["(("], "expected": false}
+    ]
+  },
+  "daily-temperatures": {
+    "method": "dailyTemperatures",
+    "params": ["temperatures"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[64, 66, 61, 63, 70, 62]], "expected": [1, 3, 1, 1, 0, 0]},
+      {"args": [[50, 40, 30]], "expected": [0, 0, 0]},
+      {"args": [[30, 30, 31]], "expected": [2, 1, 0]}
+    ]
+  },
+  "maximum-depth-of-binary-tree": {
+    "method": "maxDepth",
+    "params": ["root"],
+    "tree_params": ["root"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[1, 2, 3, 4, null, null, 5, null, null, 6]], "expected": 4},
+      {"args": [[7]], "expected": 1},
+      {"args": [[]], "expected": 0}
+    ]
+  },
+  "same-tree": {
+    "method": "isSameTree",
+    "params": ["p", "q"],
+    "tree_params": ["p", "q"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[1, 2, 3], [1, 2, 3]], "expected": true},
+      {"args": [[1, 2], [1, null, 2]], "expected": false},
+      {"args": [[4, 5], [4, 6]], "expected": false}
+    ]
+  },
+  "path-sum": {
+    "method": "hasPathSum",
+    "params": ["root", "targetSum"],
+    "tree_params": ["root"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[3, 9, 2, null, null, 1, 6], 6], "expected": true},
+      {"args": [[1, 2], 1], "expected": false},
+      {"args": [[], 0], "expected": false}
+    ]
+  },
+  "flood-fill": {
+    "method": "floodFill",
+    "params": ["image", "sr", "sc", "color"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[[1, 1, 0], [1, 0, 0], [0, 1, 1]], 0, 0, 2], "expected": [[2, 2, 0], [2, 0, 0], [0, 1, 1]]},
+      {"args": [[[0, 0], [0, 0]], 1, 1, 0], "expected": [[0, 0], [0, 0]]},
+      {"args": [[[3]], 0, 0, 5], "expected": [[5]]}
+    ]
+  },
+  "find-if-path-exists-in-graph": {
+    "method": "validPath",
+    "params": ["n", "edges", "source", "destination"],
+    "compare": "exact",
+    "examples": [
+      {"args": [5, [[0, 1], [1, 2], [3, 4]], 0, 2], "expected": true},
+      {"args": [5, [[0, 1], [1, 2], [3, 4]], 0, 4], "expected": false},
+      {"args": [1, [], 0, 0], "expected": true}
+    ]
+  },
+  "number-of-islands": {
+    "method": "numIslands",
+    "params": ["grid"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[["1", "1", "0"], ["0", "1", "0"], ["1", "0", "1"]]], "expected": 3},
+      {"args": [[["0", "0"]]], "expected": 0},
+      {"args": [[["1"]]], "expected": 1}
+    ]
+  },
+  "climbing-stairs": {
+    "method": "climbStairs",
+    "params": ["n"],
+    "compare": "exact",
+    "examples": [
+      {"args": [6], "expected": 13},
+      {"args": [1], "expected": 1},
+      {"args": [4], "expected": 5}
+    ]
+  },
+  "min-cost-climbing-stairs": {
+    "method": "minCostClimbingStairs",
+    "params": ["cost"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[3, 1, 4, 1, 5]], "expected": 2},
+      {"args": [[5, 10, 20]], "expected": 10},
+      {"args": [[2, 2]], "expected": 2}
+    ]
+  },
+  "house-robber": {
+    "method": "rob",
+    "params": ["nums"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[2, 9, 4, 3, 7]], "expected": 16},
+      {"args": [[5]], "expected": 5},
+      {"args": [[4, 1, 1, 4]], "expected": 8}
+    ]
+  },
+  "maximum-subarray": {
+    "method": "maxSubArray",
+    "params": ["nums"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[3, -5, 4, -1, 2, -6, 1]], "expected": 5},
+      {"args": [[-3, -1, -2]], "expected": -1},
+      {"args": [[7]], "expected": 7}
+    ]
+  }
+}

@@ -5,12 +5,17 @@
 codelens/
   .kiro/steering/   .kiro/specs/   .kiro/hooks/
   docs/plan.md
-  frontend/src/components/   (Editor, Timeline, Variables, Arrays, Explanation, Predict, Narrator)
+  frontend/src/components/   (Editor, CodeView, highlight.ts, StepViewer, DataStructures, Arrays, CallStack, Explanation, Narrator)
+  frontend/src/visualizer/   (CodeVisualizer, ControlBar, ArrayStage, ChangeList, focus.ts: pattern, context, variables, cells)
+  shared/practice/           (problems.json + one reference solution per problem; see steering/problems.md)
   frontend/src/components/visualizers/   (HashMap, Set, Queue, Graph, Tree, CallStack)
   frontend/src/worker/trace.worker.ts  traceClient.ts
   frontend/src/py/tracer.py  gen_fixtures.py
   frontend/src/types/trace.ts      (FROZEN contract)
-  frontend/src/lessons.ts          (Level 1 + Level 2 lessons)
+  frontend/src/App.tsx  router.ts  (app shell and hash routes)
+  frontend/src/pages/              (Home, ProblemList, ProblemPage, Playground)
+  frontend/src/problems.ts         (the LeetCode practice problems)
+  frontend/src/lessons.ts          (playground examples)
   frontend/src/explain/            (deterministic templates, en + es; client.ts)
   api/explain.ts
   shared/fixtures/*.json           (precomputed traces, one per lesson)
@@ -54,11 +59,17 @@ imports it read-only.
 - Do not edit files outside your workstream's listed folders.
 - Treat `frontend/src/types/trace.ts` as read-only unless you are the
   integrator.
-- Lesson sources exist in two places that must match byte for byte (the
-  fixture `codeHash` depends on it): `frontend/src/lessons.ts` (ui-builder)
-  and `frontend/src/py/gen_fixtures.py` (trace-engineer). Change both together.
-- Lesson titles and problem statements are written by us; never copy them from
-  LeetCode or other sites.
+- The playground examples exist in two places that must match byte for byte
+  (the fixture `codeHash` depends on it): `frontend/src/lessons.ts` and
+  `frontend/src/py/gen_fixtures.py`. Change both together. `gen_fixtures.py`
+  also keeps the six earlier Level 2 scripts as test data only; they are not
+  shown in the app.
+- Practice problems: metadata and statements in `frontend/src/problems.ts`;
+  parameters, examples and reference solutions in `shared/practice/`, read by
+  both the UI and `frontend/src/py/practice.py`.
+- Practice problems use LeetCode's real titles, numbers and method signatures;
+  problem statements and examples are written by us. Never copy LeetCode's
+  problem text or examples.
 - `.kiro` lives at the repo root and must never be added to `.gitignore`.
 - No server-side execution of student code; Python only runs client-side in the
   Web Worker.

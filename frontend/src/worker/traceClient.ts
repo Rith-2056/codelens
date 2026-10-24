@@ -1,21 +1,49 @@
 // Main-thread client for the Pyodide trace worker.
 //
 // - One worker at a time. It loads Pyodide + tracer.py, then reports "ready".
-// - runTrace() calls are serialized: each waits for the previous one.
+// - Requests (runTrace, tracePractice, checkPractice) are serialized: each
+//   waits for the previous one.
 // - The TRACE_TIMEOUT_MS timer starts only when a request is posted to a
 //   ready worker. On timeout the worker is terminated, a "timeout"
 //   TraceResult is returned, and a fresh worker is spawned in the background.
 
-import type { TraceResult } from "../types/trace";
-import type { TraceRequest, WorkerMessage } from "./protocol";
+import type { JsonValue, TraceResult } from "../types/trace";
+import type { WorkerMessage, WorkerRequest } from "./protocol";
 
 export const TRACE_TIMEOUT_MS = 3000;
 
 export type TracerStatus = "loading" | "ready" | "error";
 
+/** A practice solution traced on one input: the program shown (code + driver) and its trace. */
+export type PracticeTrace = { program: string; trace: TraceResult };
+
+/** A practice solution checked against the reference on one input. */
+export type PracticeCheck = {
+  correct: boolean;
+  got: JsonValue;
+  expected: JsonValue;
+  error: { type: string; message: string } | null;
+};
+
+/** The result of searching small inputs for one where a solution goes wrong. */
+export type CounterexampleSearch =
+  | {
+      found: true;
+      args: JsonValue[];
+      got: JsonValue;
+      expected: JsonValue;
+      error: { type: string; message: string } | null;
+      tried: number;
+    }
+  | { found: false; tried: number; complete: boolean; timedOut?: boolean };
+
+/** A request body without its id (distributes over the union). */
+type RequestBody = WorkerRequest extends infer R ? (R extends WorkerRequest ? Omit<R, "id"> : never) : never;
+
 type Pending = {
   id: number;
-  resolve: (r: TraceResult) => void;
+  /** Receives the worker's raw JSON result. */
+  resolve: (json: string) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -96,11 +124,7 @@ function spawn(): Loader {
     pending = null;
     clearTimeout(p.timer);
     if ("result" in msg) {
-      try {
-        p.resolve(JSON.parse(msg.result) as TraceResult);
-      } catch (e) {
-        p.reject(new Error(`Tracer returned invalid JSON: ${String(e)}`));
-      }
+      p.resolve(msg.result);
     } else {
       p.reject(new Error(`Tracer failed: ${msg.error}`));
     }
@@ -143,34 +167,87 @@ export async function codeHash(source: string): Promise<string> {
   return toHex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source)));
 }
 
-async function runOne(code: string, retried = false): Promise<TraceResult> {
-  const hash = await codeHash(code);
+/**
+ * Send one request to a ready worker. `onTimeout` gives the result to resolve
+ * with when the worker is stuck past TRACE_TIMEOUT_MS (it is then replaced).
+ */
+async function requestOne<T>(body: RequestBody, onTimeout: () => T, retried = false): Promise<T> {
   const l = loader ?? spawn();
   await l.ready;
   if (loader !== l) {
     // The worker died between "ready" and now; try once with a fresh one.
     if (retried) throw new Error("Trace worker stopped before the run started");
-    return runOne(code, true);
+    return requestOne(body, onTimeout, true);
   }
-  return new Promise<TraceResult>((resolve, reject) => {
+  return new Promise<T>((resolve, reject) => {
     const id = nextId++;
     const timer = setTimeout(() => {
       if (!pending || pending.id !== id) return;
       pending = null;
       discard(l);
-      resolve({ steps: [], status: "timeout", truncated: false, codeHash: hash });
+      resolve(onTimeout());
       spawn(); // fresh worker in the background: status → "loading" → "ready"
     }, TRACE_TIMEOUT_MS);
-    pending = { id, resolve, reject, timer };
-    const req: TraceRequest = { id, source: code };
-    l.worker.postMessage(req);
+    const parse = (json: string) => {
+      try {
+        resolve(JSON.parse(json) as T);
+      } catch (e) {
+        reject(new Error(`Tracer returned invalid JSON: ${String(e)}`));
+      }
+    };
+    pending = { id, resolve: parse, reject, timer };
+    l.worker.postMessage({ id, ...body } as WorkerRequest);
   });
 }
+
+function enqueue<T>(job: () => Promise<T>): Promise<T> {
+  const run = queue.then(job);
+  queue = run.catch(() => {});
+  return run;
+}
+
+const timeoutTrace = (hash: string): TraceResult => ({ steps: [], status: "timeout", truncated: false, codeHash: hash });
 
 /** Trace student code. Waits for the tracer to be ready. Resolves with a TraceResult for every student-code outcome
  *  (ok / error / limit / timeout). Rejects only for infrastructure failures (Pyodide failed to load, worker crashed). */
 export function runTrace(code: string): Promise<TraceResult> {
-  const run = queue.then(() => runOne(code));
-  queue = run.catch(() => {});
-  return run;
+  return enqueue(async () => {
+    const hash = await codeHash(code);
+    return requestOne<TraceResult>({ kind: "trace", source: code }, () => timeoutTrace(hash));
+  });
+}
+
+/** Trace a practice solution (or the reference, when `source` is null) on one input. */
+export function tracePractice(slug: string, source: string | null, args: JsonValue[]): Promise<PracticeTrace> {
+  return enqueue(async () => {
+    const hash = await codeHash(source ?? "");
+    return requestOne<PracticeTrace>({ kind: "practice-trace", slug, source, args }, () => ({
+      program: "",
+      trace: timeoutTrace(hash),
+    }));
+  });
+}
+
+/** Run a practice solution untraced on one input and compare it with the reference. */
+export function checkPractice(slug: string, source: string, args: JsonValue[]): Promise<PracticeCheck> {
+  return enqueue(() =>
+    requestOne<PracticeCheck>({ kind: "practice-check", slug, source, args }, () => ({
+      correct: false,
+      got: null,
+      expected: null,
+      error: { type: "Timeout", message: `Your solution took longer than ${TRACE_TIMEOUT_MS / 1000} seconds.` },
+    })),
+  );
+}
+
+/** Search small valid inputs, smallest first, for one where the solution disagrees with the reference. */
+export function findCounterexample(slug: string, source: string): Promise<CounterexampleSearch> {
+  return enqueue(() =>
+    requestOne<CounterexampleSearch>({ kind: "practice-counterexample", slug, source }, () => ({
+      found: false,
+      tried: 0,
+      complete: false,
+      timedOut: true,
+    })),
+  );
 }

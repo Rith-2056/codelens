@@ -1,0 +1,222 @@
+"""The practice harness: LeetCode-style `class Solution` submissions run on an
+input, next to a reference solution.
+
+- shared/practice/problems.json holds each problem's method, parameter names,
+  examples (our own) and how answers are compared.
+- shared/practice/<slug>.py holds a correct reference solution.
+- A hidden prelude provides what LeetCode provides (typing names, deque,
+  TreeNode and a tree builder). It runs untraced and never shows in steps.
+- A visible driver is appended to the student's code, so the call shows up
+  in the trace.
+"""
+
+import json
+from pathlib import Path
+
+import pytest
+
+import practice
+import tracer
+
+ROOT = Path(__file__).resolve().parent.parent
+SLUGS = [
+    "two-sum",
+    "contains-duplicate",
+    "valid-anagram",
+    "product-of-array-except-self",
+    "squares-of-a-sorted-array",
+    "two-sum-ii-input-array-is-sorted",
+    "container-with-most-water",
+    "best-time-to-buy-and-sell-stock",
+    "maximum-average-subarray-i",
+    "minimum-size-subarray-sum",
+    "binary-search",
+    "search-insert-position",
+    "find-minimum-in-rotated-sorted-array",
+    "valid-parentheses",
+    "daily-temperatures",
+    "maximum-depth-of-binary-tree",
+    "same-tree",
+    "path-sum",
+    "flood-fill",
+    "find-if-path-exists-in-graph",
+    "number-of-islands",
+    "climbing-stairs",
+    "min-cost-climbing-stairs",
+    "house-robber",
+    "maximum-subarray",
+]
+
+
+def test_problem_data_covers_the_25_problems_in_category_order():
+    problems = practice.load_problems()
+    assert list(problems) == SLUGS
+    for slug, p in problems.items():
+        assert p["method"] and p["params"], slug
+        assert len(p["examples"]) >= 3, slug
+        assert (ROOT / "shared" / "practice" / f"{slug}.py").exists(), slug
+
+
+def test_slugs_and_methods_match_the_frontend_problem_list():
+    ts = (ROOT / "frontend" / "src" / "problems.ts").read_text()
+    for slug, p in practice.load_problems().items():
+        assert f'slug: "{slug}"' in ts
+        block = ts[ts.index(f'slug: "{slug}"'):]
+        assert f'method: "{p["method"]}"' in block[: block.index("statement:")]
+
+
+@pytest.mark.parametrize("slug", SLUGS)
+def test_reference_solution_gives_every_expected_answer(slug):
+    p = practice.load_problems()[slug]
+    ref = practice.reference_source(slug)
+    for ex in p["examples"]:
+        got = practice.run(slug, ref, ex["args"])
+        assert got["ok"], (slug, ex, got)
+        assert practice.same_answer(slug, got["value"], ex["expected"]), (slug, ex, got)
+
+
+def test_program_appends_a_visible_driver_after_the_students_code():
+    src = "class Solution:\n    def climbStairs(self, n: int) -> int:\n        return n\n"
+    prog = practice.program("climbing-stairs", src, [4])
+    assert prog.startswith(src)
+    assert prog.endswith(
+        "\n# CodeLens runs your solution on this input:\n"
+        "n = 4\n"
+        "result = Solution().climbStairs(n)\n"
+        "print(result)\n"
+    )
+
+
+def test_tree_inputs_are_built_from_level_order_lists():
+    prog = practice.program("maximum-depth-of-binary-tree", "x = 1\n", [[1, None, 2]])
+    assert "root = build_tree([1, None, 2])\n" in prog
+
+
+def test_prelude_runs_untraced_and_its_names_stay_hidden():
+    src = practice.reference_source("maximum-depth-of-binary-tree")
+    result = practice.trace_example("maximum-depth-of-binary-tree", src, [[1, 2, 3, 4, None, None, 5]])
+    assert result["status"] == "ok"
+    assert result["steps"][-1]["stdout"] == "3\n"
+    n_lines = practice.program("maximum-depth-of-binary-tree", src, [[1, 2, 3, 4, None, None, 5]]).count("\n")
+    for step in result["steps"]:
+        assert 1 <= step["line"] <= n_lines  # never a prelude line
+        for hidden in ("List", "Optional", "deque", "TreeNode", "build_tree"):
+            assert hidden not in step["locals"], (hidden, step["index"])
+    # The TreeNode objects the prelude built are visible in the heap, next to
+    # the Solution object itself (it is `self` inside the method).
+    types = {obj["type"] for s in result["steps"] for obj in s["heap"].values()}
+    assert types == {"TreeNode", "Solution"}
+
+
+def test_a_solution_method_runs_as_its_own_frame():
+    src = practice.reference_source("two-sum")
+    result = practice.trace_example("two-sum", src, [[3, 8, 5, 1], 6])
+    assert result["status"] == "ok"
+    assert result["steps"][-1]["stdout"] == "[2, 3]\n"
+    method_steps = [s for s in result["steps"] if s["functionName"] == "twoSum"]
+    assert method_steps and all(s["depth"] == 1 for s in method_steps)
+    assert all(len(s["stack"]) == 2 for s in method_steps)  # module + twoSum
+
+
+def test_students_can_use_leetcode_annotations_and_deque_without_imports():
+    src = (
+        "class Solution:\n"
+        "    def containsDuplicate(self, nums: List[int]) -> bool:\n"
+        "        q = deque(nums)\n"
+        "        return len(set(q)) != len(q)\n"
+    )
+    got = practice.run("contains-duplicate", src, [[1, 2, 1]])
+    assert got == {"ok": True, "value": True}
+
+
+def test_errors_and_missing_methods_are_reported_not_raised():
+    bad = "class Solution:\n    def twoSum(self, nums, target):\n        return nums[99]\n"
+    got = practice.run("two-sum", bad, [[1, 2], 3])
+    assert got["ok"] is False and got["error"]["type"] == "IndexError"
+    missing = "class Solution:\n    pass\n"
+    got = practice.run("two-sum", missing, [[1, 2], 3])
+    assert got["ok"] is False and got["error"]["type"] == "AttributeError"
+    nosol = "x = 1\n"
+    got = practice.run("two-sum", nosol, [[1, 2], 3])
+    assert got["ok"] is False and got["error"]["type"] == "NameError"
+
+
+def test_runaway_solutions_stop_at_the_step_limit():
+    src = "class Solution:\n    def climbStairs(self, n):\n        while True:\n            pass\n"
+    got = practice.run("climbing-stairs", src, [3])
+    assert got["ok"] is False and got["error"]["type"] == "StepLimit"
+
+
+def test_answer_comparison_rules():
+    assert practice.same_answer("two-sum", [3, 1], [1, 3])  # any order
+    assert not practice.same_answer("two-sum", [1, 1], [1, 3])
+    assert practice.same_answer("two-sum-ii-input-array-is-sorted", [1, 3], [1, 3])
+    assert not practice.same_answer("two-sum-ii-input-array-is-sorted", [3, 1], [1, 3])  # smaller first
+    assert practice.same_answer("contains-duplicate", True, True)
+    assert not practice.same_answer("contains-duplicate", 1, True)  # must be a real bool
+    assert not practice.same_answer("climbing-stairs", 13.0, 13)  # must be an int
+    # Averages: like LeetCode, any answer within 1e-5 is accepted (ints too).
+    assert practice.same_answer("maximum-average-subarray-i", 11 / 3, 3.6666666666666665)
+    assert practice.same_answer("maximum-average-subarray-i", 3.666669, 11 / 3)
+    assert not practice.same_answer("maximum-average-subarray-i", 3.6667, 11 / 3)
+    assert practice.same_answer("maximum-average-subarray-i", 6, 6.0)
+    assert not practice.same_answer("maximum-average-subarray-i", True, 1.0)  # a bool is not a number here
+    assert not practice.same_answer("maximum-average-subarray-i", [6.0], 6.0)
+
+
+def test_reference_fixtures_match_fresh_traces():
+    for slug in SLUGS:
+        path = ROOT / "shared" / "fixtures" / "practice" / f"{slug}.json"
+        data = json.loads(path.read_text())
+        ex = practice.load_problems()[slug]["examples"][0]
+        ref = practice.reference_source(slug)
+        assert data["program"] == practice.program(slug, ref, ex["args"])
+        assert data["trace"] == practice.trace_example(slug, ref, ex["args"])
+
+
+# ---- checking an answer (used by the problem page and, later, the
+# counterexample search) ---------------------------------------------------
+
+
+def test_check_reports_a_correct_answer_with_json_values():
+    ref = practice.reference_source("two-sum")
+    got = practice.check("two-sum", ref, [[3, 8, 5, 1], 6])
+    assert got == {"correct": True, "got": [2, 3], "expected": [2, 3], "error": None}
+
+
+def test_check_reports_a_wrong_answer_and_what_was_expected():
+    wrong = "class Solution:\n    def climbStairs(self, n):\n        return n\n"
+    got = practice.check("climbing-stairs", wrong, [4])
+    assert got == {"correct": False, "got": 4, "expected": 5, "error": None}
+
+
+def test_check_reports_errors_and_non_json_answers():
+    boom = "class Solution:\n    def climbStairs(self, n):\n        return 1 // 0\n"
+    got = practice.check("climbing-stairs", boom, [4])
+    assert got["correct"] is False and got["got"] is None and got["expected"] == 5
+    assert got["error"]["type"] == "ZeroDivisionError"
+    odd = "class Solution:\n    def twoSum(self, nums, target):\n        return {0, 1}\n"
+    got = practice.check("two-sum", odd, [[4, 4], 8])
+    assert got["correct"] is False and got["got"] == {"__set": [0, 1]}
+
+
+def test_json_entry_points_for_the_worker():
+    args = json.dumps([[4, 4], 8])
+    ref = json.loads(practice.trace_example_json("two-sum", None, args))
+    assert ref["program"].startswith(practice.reference_source("two-sum").rstrip("\n"))
+    assert ref["trace"]["status"] == "ok"
+    student = "class Solution:\n    def twoSum(self, nums, target):\n        return [0, 1]\n"
+    mine = json.loads(practice.trace_example_json("two-sum", student, args))
+    assert mine["program"].startswith(student)
+    assert json.loads(practice.check_json("two-sum", student, args))["correct"] is True
+
+
+def test_a_js_null_source_from_pyodide_means_the_reference():
+    # Pyodide 0.29 passes JavaScript null as a JsNull object, not None (found
+    # by pyodide-check.mjs). Any non-string source must mean "the reference".
+    class JsNull:
+        pass
+
+    args = json.dumps([[4, 4], 8])
+    ref = json.loads(practice.trace_example_json("two-sum", JsNull(), args))
+    assert ref["program"].startswith(practice.reference_source("two-sum").rstrip("\n"))

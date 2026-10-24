@@ -189,3 +189,26 @@ test("cache: template answers are not cached, so a later try can get the llm tex
   assert.equal((await fetchExplanation(PREV, CURR, "en", SLICE, OPTS)).source, "llm");
   assert.equal(calls.length, 2);
 });
+
+// ---------------------------------------------------------------------------
+// Wave 3: opts.source improves the local template and is never sent.
+
+const MEMBER_SRC = "seen = set()\nn = 1\nif n in seen:\n    pass\n";
+const M_PREV = { ...PREV, line: 3, locals: { seen: { __set: [1] }, n: 1 }, heap: {}, stack: [] };
+const M_CURR = { ...PREV, line: 4, locals: { seen: { __set: [1] }, n: 1 }, heap: {}, stack: [] };
+
+test("opts.source: failures and server templates use the local template with the source, and the source is not sent", async () => {
+  const withSource = { text: explainStep(M_PREV, M_CURR, "en", MEMBER_SRC), source: "template" };
+  assert.match(withSource.text, /n is 1, which is in seen, so it's True/);
+
+  mockFetch(() => jsonResponse({ text: explainStep(M_PREV, M_CURR, "en"), source: "template" }));
+  assert.deepEqual(await fetchExplanation(M_PREV, M_CURR, "en", SLICE, { ...OPTS, source: MEMBER_SRC }), withSource);
+  assert.ok(!("source" in JSON.parse(calls[0].init.body)), "the full source stays in the browser");
+
+  mockFetch(() => jsonResponse({}, 500));
+  assert.deepEqual(await fetchExplanation(M_PREV, M_CURR, "en", SLICE, { ...OPTS, source: MEMBER_SRC }), withSource);
+
+  // LLM text still wins when the server has it.
+  mockFetch(() => jsonResponse({ text: LLM_TEXT, source: "llm" }));
+  assert.deepEqual(await fetchExplanation(M_PREV, M_CURR, "en", SLICE, { ...OPTS, source: MEMBER_SRC }), { text: LLM_TEXT, source: "llm" });
+});

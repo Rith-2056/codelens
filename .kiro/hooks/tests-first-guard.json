@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Tests-first guard (agent edit)",
+      "trigger": "PreToolUse",
+      "description": "Before the agent writes or edits a file, remind it of .kiro/steering/testing.md: feature code only after a failing test for that change exists. Test files, docs and .kiro files pass straight through.",
+      "matcher": "^(fs_write|str_replace|fs_append)$",
+      "action": {
+        "type": "agent",
+        "prompt": "You are about to write to a file. If it is a test file (tests/, *.test.ts, *.test.tsx, *.test.mjs), a doc, or under .kiro/, continue. Otherwise, per .kiro/steering/testing.md, confirm that a test for this exact change already exists and has been seen failing (red). If not, write that test first, run it, and only then make this edit."
+      }
+    }
+  ]
+}

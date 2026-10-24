@@ -29,8 +29,16 @@ plain-language explanation grounded only in the real execution trace.
   (contains-duplicate style), two pointers on a sorted array, BFS on a graph
   (adjacency dict, deque queue, visited set), max depth of a binary tree
   (recursion plus `TreeNode`), climbing stairs as 1D DP.
-- Lesson titles and problem statements are our own plain-language writing; see
-  the table in `docs/plan.md`.
+- **Practice problems (25, grouped by pattern):** Arrays & Hashing, Two
+  Pointers, Sliding Window, Binary Search, Stack, Trees, Graphs, Dynamic
+  Programming, with 2 to 4 each (spec: `.kiro/specs/problem-catalog/`).
+  They use LeetCode's real names, numbers and `class Solution` signatures;
+  statements and examples are our own words (see `frontend/src/problems.ts`
+  and `.kiro/steering/problems.md`).
+- Pages: home, the problem list (one section per pattern), one page per
+  problem (your solution and, on request, the correct one), the Code
+  Visualizer (a full-screen debugger view of one run), and a playground for
+  any Python program.
 
 ## MVP features
 1. Editor: syntax-highlighted Python with the three Level 1 lessons (loop,
@@ -62,8 +70,9 @@ DLCS standards, simple recursion call-stack view (stop by 4 PM).
 ## Non-goals
 No accounts, database, analytics, grading storage, multiplayer, package
 installation, file access, or server-side code execution. No linked lists,
-heaps, tries, or union-find. No online judging: no hidden test cases and no
-pass/fail verdicts on submitted solutions.
+heaps, tries, or union-find. No hidden test suites, scores, or leaderboards:
+when CodeLens says a solution is wrong it always shows the input that proves
+it. Saved sessions stay in the student's own browser.
 
 ## Definition of done (by 7:30 PM; submissions lock 8:00 PM)
 - Public deployed URL that works with no account

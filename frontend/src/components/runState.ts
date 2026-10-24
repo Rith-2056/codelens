@@ -50,7 +50,7 @@ export type RunAction =
   | { type: "setStep"; index: number };
 
 export const PYTHON_LOAD_FAILED =
-  "Python could not load on this device. You can still step through the three lessons. Reload the page to try again.";
+  "Python could not load on this device. You can still step through the example lessons. Reload the page to try again.";
 
 export function traceOf(phase: Phase): (TracedPhase & { name: string }) | null {
   return phase.name === "ready" || phase.name === "error" || phase.name === "limit"

@@ -1,16 +1,17 @@
 """Regenerate the precomputed lesson traces in shared/fixtures/.
 
 Usage (from the repo root):
-    .venv/bin/python frontend/src/py/gen_fixtures.py          # write branch + function
-    .venv/bin/python frontend/src/py/gen_fixtures.py --check  # verify all three, write nothing
+    .venv/bin/python frontend/src/py/gen_fixtures.py          # write every fixture but loop
+    .venv/bin/python frontend/src/py/gen_fixtures.py --check  # verify all nine, write nothing
     .venv/bin/python frontend/src/py/gen_fixtures.py --all    # rewrite every fixture
 
 The lesson sources below must stay byte-for-byte identical to the strings in
 frontend/src/lessons.ts (trailing newline included), or the codeHash will not
-match. By default loop.json is hand-formatted and only checked, never
-rewritten. --all (run by the contract hooks when trace.ts changes) rewrites
-every fixture, loop.json included, but only after checking that every trace
-has the fields trace.ts requires; if any is missing it writes nothing.
+match. Fixtures are written as compact JSON, one line each. The default mode
+only checks loop.json, never rewriting it. --all (run by the contract hooks
+when trace.ts changes) rewrites every fixture, loop.json included, but only
+after checking that every trace has the fields trace.ts requires; if any is
+missing it writes nothing.
 """
 
 from __future__ import annotations
@@ -22,11 +23,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import practice  # noqa: E402
 import tracer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "shared" / "fixtures"
 CONTRACT = ROOT / "frontend" / "src" / "types" / "trace.ts"
+# Reference solutions traced on each problem's first example: {program, trace}.
+PRACTICE_FIXTURES = FIXTURES / "practice"
 
 LESSONS = {
     "loop": "numbers = [3, 1, 2]\ntotal = 0\nfor n in numbers:\n    total += n\n",
@@ -46,18 +50,146 @@ LESSONS = {
         "total = add(2, 3)\n"
         "print(total)\n"
     ),
+    # Level 2: interview patterns. Sources from
+    # .kiro/specs/ds-visualizers/design.md, byte for byte.
+    "pair-sum": (
+        "nums = [4, 9, 2, 7]\n"
+        "target = 11\n"
+        "seen = {}\n"
+        "answer = None\n"
+        "for i, n in enumerate(nums):\n"
+        "    need = target - n\n"
+        "    if need in seen:\n"
+        "        answer = [seen[need], i]\n"
+        "        break\n"
+        "    seen[n] = i\n"
+        "print(answer)\n"
+    ),
+    "any-repeats": (
+        "nums = [5, 1, 8, 1, 3]\n"
+        "seen = set()\n"
+        "has_repeat = False\n"
+        "for n in nums:\n"
+        "    if n in seen:\n"
+        "        has_repeat = True\n"
+        "        break\n"
+        "    seen.add(n)\n"
+        "print(has_repeat)\n"
+    ),
+    "sorted-pair": (
+        "nums = [1, 3, 4, 6, 8, 11]\n"
+        "target = 10\n"
+        "left = 0\n"
+        "right = len(nums) - 1\n"
+        "pair = None\n"
+        "while left < right:\n"
+        "    total = nums[left] + nums[right]\n"
+        "    if total == target:\n"
+        "        pair = [nums[left], nums[right]]\n"
+        "        break\n"
+        "    elif total < target:\n"
+        "        left += 1\n"
+        "    else:\n"
+        "        right -= 1\n"
+        "print(pair)\n"
+    ),
+    "network-hops": (
+        "from collections import deque\n"
+        "\n"
+        "graph = {\n"
+        "    \"A\": [\"B\", \"C\"],\n"
+        "    \"B\": [\"A\", \"D\"],\n"
+        "    \"C\": [\"A\", \"D\"],\n"
+        "    \"D\": [\"B\", \"C\", \"E\"],\n"
+        "    \"E\": [\"D\"],\n"
+        "}\n"
+        "visited = {\"A\"}\n"
+        "queue = deque([\"A\"])\n"
+        "hops = {\"A\": 0}\n"
+        "while queue:\n"
+        "    person = queue.popleft()\n"
+        "    for friend in graph[person]:\n"
+        "        if friend not in visited:\n"
+        "            visited.add(friend)\n"
+        "            hops[friend] = hops[person] + 1\n"
+        "            queue.append(friend)\n"
+        "print(hops)\n"
+    ),
+    "tree-height": (
+        "class TreeNode:\n"
+        "    def __init__(self, val, left=None, right=None):\n"
+        "        self.val = val\n"
+        "        self.left = left\n"
+        "        self.right = right\n"
+        "\n"
+        "\n"
+        "def max_depth(node):\n"
+        "    if node is None:\n"
+        "        return 0\n"
+        "    left = max_depth(node.left)\n"
+        "    right = max_depth(node.right)\n"
+        "    return 1 + max(left, right)\n"
+        "\n"
+        "\n"
+        "root = TreeNode(1, TreeNode(2, TreeNode(4)), TreeNode(3, None, TreeNode(5, TreeNode(6))))\n"
+        "print(max_depth(root))\n"
+    ),
+    "stairs": (
+        "n = 6\n"
+        "ways = [0] * (n + 1)\n"
+        "ways[0] = 1\n"
+        "ways[1] = 1\n"
+        "for i in range(2, n + 1):\n"
+        "    ways[i] = ways[i - 1] + ways[i - 2]\n"
+        "print(ways[n])\n"
+    ),
 }
 
-GENERATED = ("branch", "function")  # loop.json is never rewritten
+# Written by the default mode; loop.json is only rewritten by --all.
+GENERATED = tuple(name for name in LESSONS if name != "loop")
 
 
 def render(result: dict) -> str:
-    # Same top-level key order as loop.json, so the files read alike; any
-    # other keys follow in the tracer's order.
+    # Same top-level key order in every fixture; any other keys follow in the
+    # tracer's order. Compact (one line): the fixtures are bundled into the app
+    # as text, and indentation cost ~300 KB (see scripts/bundle-size.test.mjs).
     order = ["status", "message", "truncated", "codeHash", "steps"]
     ordered = {k: result[k] for k in order if k in result}
     ordered.update({k: v for k, v in result.items() if k not in ordered})
-    return json.dumps(ordered, indent=2, ensure_ascii=False) + "\n"
+    return json.dumps(ordered, separators=(",", ":"), ensure_ascii=False) + "\n"
+
+
+def practice_results() -> dict:
+    """Each problem's reference solution traced on its first example."""
+    out = {}
+    for slug, p in practice.load_problems().items():
+        ref = practice.reference_source(slug)
+        args = p["examples"][0]["args"]
+        out[slug] = {"program": practice.program(slug, ref, args), "trace": practice.trace_example(slug, ref, args)}
+    return out
+
+
+def render_practice(entry: dict) -> str:
+    trace = json.loads(render(entry["trace"]))
+    return json.dumps({"program": entry["program"], "trace": trace}, separators=(",", ":"), ensure_ascii=False) + "\n"
+
+
+def write_practice(entries: dict) -> None:
+    PRACTICE_FIXTURES.mkdir(exist_ok=True)
+    for slug, entry in entries.items():
+        path = PRACTICE_FIXTURES / f"{slug}.json"
+        path.write_text(render_practice(entry), encoding="utf-8")
+        print(f"wrote {path}")
+
+
+def check_practice(entries: dict) -> list[str]:
+    bad = []
+    for slug, entry in entries.items():
+        path = PRACTICE_FIXTURES / f"{slug}.json"
+        on_disk = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+        if on_disk != entry:
+            bad.append(f"practice/{slug}")
+    return bad
 
 
 def required_fields(type_name: str) -> list[str]:
@@ -74,6 +206,8 @@ def write_all() -> int:
     result_fields = required_fields("TraceResult")
     step_fields = required_fields("TraceStep")
     results = {name: tracer.trace(source) for name, source in LESSONS.items()}
+    practiced = practice_results()
+    results.update({f"practice/{slug}": e["trace"] for slug, e in practiced.items()})
     problems = []
     for name, result in results.items():
         missing = [f for f in result_fields if f not in result]
@@ -90,9 +224,12 @@ def write_all() -> int:
         )
         return 1
     for name, result in results.items():
+        if name.startswith("practice/"):
+            continue
         path = FIXTURES / f"{name}.json"
         path.write_text(render(result), encoding="utf-8")
         print(f"wrote {path}")
+    write_practice(practiced)
     return 0
 
 
@@ -111,6 +248,11 @@ def main(argv: list[str]) -> int:
             continue
         path.write_text(render(expected), encoding="utf-8")
         print(f"wrote {path}")
+    practiced = practice_results()
+    if check:
+        bad += check_practice(practiced)
+    else:
+        write_practice(practiced)
     if bad:
         print(f"fixtures out of date: {', '.join(bad)}", file=sys.stderr)
         return 1

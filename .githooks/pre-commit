@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Blocks the commit unless every test suite passes (test-driven development:
+# only green code is committed). Enabled with: git config core.hooksPath .githooks
+root="$(git rev-parse --show-toplevel)" || exit 1
+echo "pre-commit: running scripts/check-all.sh"
+if ! "$root/scripts/check-all.sh"; then
+  echo "pre-commit: commit blocked because a check failed. Fix it, then commit again." >&2
+  exit 1
+fi

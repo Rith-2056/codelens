@@ -19,7 +19,7 @@ A free, accessible web app that takes a learner from their first loop to their f
 Loop, branch, function. Sources live in `frontend/src/lessons.ts` and `frontend/src/py/gen_fixtures.py`.
 
 ### Level 2: Interview patterns (6 lessons)
-The problem statements are our own, written in plain language. Never copy problem text, titles, or examples from LeetCode or any other site; pattern names such as "hash map" or "two pointers" are fine. Lesson code is in `.kiro/specs/ds-visualizers/design.md`.
+**Update 2026-10-24:** the practice problems now use LeetCode's real titles, numbers and `class Solution` signatures (Two Sum, Contains Duplicate, Two Sum II - Input Array Is Sorted, Find if Path Exists in Graph, Maximum Depth of Binary Tree, Climbing Stairs); see `frontend/src/problems.ts`. Problem statements and examples stay in our own words: never copy LeetCode's problem text or examples. The table below is the original lesson plan.
 
 | # | Lesson | Pattern | Data structures shown | Problem statement |
 |---|---|---|---|---|
@@ -53,18 +53,29 @@ Should-have if time allows: language toggle, lessons tagged with Massachusetts D
 10. Data-structure visualizers: hash map table, set, array cells with index pointers (two pointers, DP table), queue, graph with visited markers, binary tree, and a call stack for recursion. Every change has a text marker and every diagram has a text alternative.
 11. Snapshot contract (frozen, version 2026-10-24): tagged set, dict, and deque values (dicts keep insertion order and int keys), student-defined objects such as `TreeNode` in a per-step heap by reference, and a call stack on every step.
 
+## Practice features (added 2026-10-24)
+12. Pages: home, the LeetCode problem list, one page per problem, and a playground for any Python program. Hash URLs, so a problem page can be bookmarked or shared.
+13. Glassy iOS-style look that stays WCAG AA (checked by `frontend/src/theme.test.ts` and axe).
+14. Your solution next to a correct one: both traced and visualized side by side.
+15. Counterexample search: when a solution is wrong, CodeLens (in Pyodide, in the browser) finds the smallest input where it differs from the reference.
+16. Three levels of AI help from Gemini (hint, targeted explanation, possible fix), grounded in the counterexample and the two traces.
+17. Mistake categories (off-by-one, missed edge case, wrong pointer update, ...) and debugging sessions saved in the browser.
+
 ## Non-goals
-No accounts, database, analytics, grading, multiplayer, package installation, file access, or server-side code execution. No linked lists, heaps, tries, or union-find. No online judging: no hidden test cases and no pass/fail verdicts on submitted solutions.
+No accounts, database, analytics, grading, multiplayer, package installation, file access, or server-side code execution. No linked lists, heaps, tries, or union-find. No hidden test suites, scores, or leaderboards: when CodeLens says a solution is wrong it always shows the input that proves it. Saved debugging sessions stay in the student's own browser.
 
 ## Acceptance tests
 - `numbers = [3, 1, 2]; total = 0; for n in numbers: total += n` shows total 0 → 3 → 4 → 6, next line visible at every step, backward stepping without re-running, predict accepts 4.
 - `while True: pass` ends as status "limit" in under 2 seconds (MAX_STEPS = 2000); editor stays usable.
 - `print(x)` with x undefined ends with the failing line highlighted and a NameError explanation.
 - With /api/explain offline, every step still has a deterministic explanation.
-- Pair that adds up: the hash map grows from empty to `{4: 0}` to `{4: 0, 9: 1}` (int keys shown as numbers) and the program prints `[1, 2]`.
-- Pair in a sorted list: `left` and `right` are drawn under the array cells and move inward until the program prints `[4, 6]`.
-- Hops through a network: the graph, the queue (front and back labeled), and the visited set update each step, ending with hops `{'A': 0, 'B': 1, 'C': 1, 'D': 2, 'E': 3}`.
-- How tall is the tree?: the tree is drawn from the `TreeNode` objects, the call stack grows and shrinks with each `max_depth` call, and the program prints `4`.
+- Level 2 checks run on each problem page's correct-solution viewer (example 1). Automated in `frontend/src/App.test.tsx`:
+  - Two Sum: the hash map grows `{}` → `{3: 0}` → `{3: 0, 8: 1}` → `{3: 0, 8: 1, 5: 2}` (int keys shown as numbers), and the answer is `[2, 3]`.
+  - Contains Duplicate: the set grows to `{1, 5, 8}`, and the answer is `True`.
+  - Two Sum II - Input Array Is Sorted: `left` and `right` are drawn under the cells and move inward, (0, 5) → (2, 3), and the answer is `[3, 4]`.
+  - Find if Path Exists in Graph: the graph, the queue (front and back labeled) and the visited badges update, and the answer is `True`.
+  - Maximum Depth of Binary Tree: the tree is drawn from the `TreeNode` objects, the call stack grows to 6 frames and back, and the answer is `4`.
+  - Climbing Stairs: the DP list fills to `[1, 1, 2, 3, 5, 8, 13]` with `i` under the current cell, and the answer is `13`.
 
 ## Architecture
 - Vite + React + TypeScript static site in `frontend/`.
@@ -123,7 +134,7 @@ type TraceStep = {
   returnValue?: JsonValue;
   error?: { type: string; message: string };
   heap: Record<string, HeapObject>;
-  stack: StackFrame[];       // calling frames, outermost first
+  stack: StackFrame[];       // all active user frames, outermost first; last = current frame
 };
 
 type TraceResult = {

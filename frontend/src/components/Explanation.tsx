@@ -10,7 +10,7 @@ type Props = {
   lang: Lang;
   code: string; // the source the trace came from
   codeHash: string;
-  traceId: number; // changes whenever a different trace is shown
+  traceId: number | string; // changes whenever a different trace is shown
 };
 
 // Wait this long on a step before asking the server, so holding an arrow key
@@ -54,6 +54,7 @@ export default function Explanation({ steps, index, lang, code, codeHash, traceI
         codeHash,
         stepIndex: index,
         signal: controller.signal,
+        source: code,
       }).then(
         (value) => {
           // Only swap if the student is still on this trace, step and language.
@@ -72,7 +73,7 @@ export default function Explanation({ steps, index, lang, code, codeHash, traceI
 
   if (!curr) return null;
   const current = fetched && fetched.key === key ? fetched.value : null;
-  const text = current?.text ?? explainStep(prev, curr, lang);
+  const text = current?.text ?? explainStep(prev, curr, lang, code);
   const source = current?.source ?? "template";
 
   return (

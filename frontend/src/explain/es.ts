@@ -3,7 +3,20 @@
 // Las citas en prosa usan «…»; los textos de Python mantienen comillas "…".
 
 import type { ErrorInfo } from "./errors.ts";
-import { hasChanges, MODULE, type Changes, type Lead, type OutputView, type Plan, type Tail, type VarView } from "./plan.ts";
+import {
+  hasChanges,
+  MODULE,
+  type Changes,
+  type Item,
+  type Items,
+  type Lead,
+  type Branch,
+  type Membership,
+  type OutputView,
+  type Plan,
+  type Tail,
+  type VarView,
+} from "./plan.ts";
 import type { ValueView } from "./values.ts";
 
 /** "y" becomes "e" before a word that starts with the sound /i/ (i-, hi-). */
@@ -15,6 +28,16 @@ function join(items: string[]): string {
   if (items.length <= 1) return items.join("");
   const last = items[items.length - 1];
   return `${items.slice(0, -1).join(", ")} ${yOrE(last)} ${last}`;
+}
+
+/** Join whole clauses: a comma before the last "y" when a clause has its own comma or "y". */
+function joinClauses(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  if (items.some((x) => x.includes(",") || / [ye] /.test(x))) {
+    const last = items[items.length - 1];
+    return `${items.slice(0, -1).join(", ")}, ${yOrE(last)} ${last}`;
+  }
+  return join(items);
 }
 
 function placeholder(t: string, n: number | undefined): string {
@@ -37,16 +60,106 @@ function placeholder(t: string, n: number | undefined): string {
     case "module": return "un módulo";
     case "range": return "un rango";
     case "generator": return "un generador";
+    case "deque": return "una cola (deque)" + count("elemento", "elementos");
     default: return `un objeto de tipo ${t}` + count("elemento", "elementos");
   }
 }
 
 function value(v: ValueView): string {
-  return v.kind === "literal" ? v.text : placeholder(v.typeName, v.length);
+  if (v.kind === "literal") return v.text;
+  if (v.kind === "object") {
+    if (v.typeName === "") return "un objeto";
+    return v.fields !== undefined ? `${v.typeName}(${v.fields})` : `un objeto ${v.typeName}`;
+  }
+  return placeholder(v.typeName, v.length);
+}
+
+/** describeShort's Spanish wording. */
+export const valueEs = value;
+
+/** True when value(v) reads as code (`x = …`) rather than as words. */
+function codeLike(v: ValueView): boolean {
+  return v.kind === "literal" || (v.kind === "object" && v.fields !== undefined);
 }
 
 function variable(v: VarView): string {
-  return v.value.kind === "literal" ? `${v.name} = ${v.value.text}` : `${v.name} (${value(v.value)})`;
+  return codeLike(v.value) ? `${v.name} = ${value(v.value)}` : `${v.name} (${value(v.value)})`;
+}
+
+function cell(name: string, index: string[] | undefined, row: boolean): string {
+  if (index !== undefined) return `${name}[${index.join("][")}]`;
+  return row ? `una fila de ${name}` : `una casilla de ${name}`;
+}
+
+function item(x: Item): string {
+  switch (x.kind) {
+    case "dictAdd": return `${x.name} ahora tiene la clave ${value(x.key)} con el valor ${value(x.value)}`;
+    case "dictChange": return `${x.name}[${value(x.key)}] pasó de ${value(x.before)} a ${value(x.after)}`;
+    case "dictRemove": return `se quitó la clave ${value(x.key)} de ${x.name}`;
+    case "setAdd": return `${value(x.item)} se agregó al conjunto ${x.name}`;
+    case "setRemove": return `${value(x.item)} se quitó del conjunto ${x.name}`;
+    case "queue": {
+      const end = x.end === "front" ? "el frente" : "el final";
+      return `${value(x.item)} ${x.op === "pushed" ? "entró" : "salió"} por ${end} de ${x.name}`;
+    }
+    case "cell": return `${cell(x.name, x.index, x.row)} pasó de ${value(x.before)} a ${value(x.after)}`;
+    case "append": return `${value(x.item)} se agregó al final de ${x.name}`;
+    case "popEnd": return `${value(x.item)} se quitó del final de ${x.name}`;
+    case "field": {
+      const where = x.owner !== undefined
+        ? `${x.owner}.${x.field}`
+        : `el campo ${x.field} de ${x.typeName !== "" ? `un objeto ${x.typeName}` : "un objeto"}`;
+      return x.before !== undefined
+        ? `${where} pasó de ${value(x.before)} a ${value(x.after)}`
+        : `${where} ahora ${codeLike(x.after) ? "vale" : "es"} ${value(x.after)}`;
+    }
+    case "pointer":
+      return `${x.name} pasó de ${value(x.before)} a ${value(x.after)}, así que ahora apunta a ${x.array}[${x.name}], que vale ${value(x.target)}`;
+    case "var": return `${x.change.name} pasó de ${value(x.change.before)} a ${value(x.change.after)}`;
+    case "new":
+      return codeLike(x.v.value)
+        ? `se creó ${x.v.name} con el valor ${value(x.v.value)}`
+        : `se creó ${x.v.name} (${value(x.v.value)})`;
+    case "gone": return `se borró ${x.name}`;
+  }
+}
+
+function items(it: Items): string {
+  const parts = it.list.map(item);
+  if (it.output !== undefined) {
+    const single = it.output.blank || (it.output.lines.length === 1 && !it.output.more);
+    parts.push(`${single ? "se mostró" : "se mostraron"} ${output(it.output)} en pantalla`);
+  }
+  if (it.more) parts.push("también cambiaron otras cosas");
+  return joinClauses(parts);
+}
+
+function check(line: number, c: Membership): string {
+  const verb = c.dict ? (c.found ? "es una clave de" : "no es una clave de") : (c.found ? "está en" : "no está en");
+  const subject = c.subject.name !== undefined
+    ? `${c.subject.name} vale ${value(c.subject.value)}, que ${verb}`
+    : `${value(c.subject.value)} ${verb}`;
+  const then = c.loop
+    ? (c.result ? "Python ejecuta el cuerpo del bucle" : "Python sale del bucle")
+    : (c.result ? "Python entra en ese bloque" : "Python se salta ese bloque");
+  return `Ya se ejecutó la línea ${line}, que comprobó ${c.cond}: ${subject} ${c.container}, así que da ${c.result ? "True" : "False"} y ${then}.`;
+}
+
+function branch(line: number, b: Branch): string {
+  const then = b.loop
+    ? (b.result ? "Python ejecuta el cuerpo del bucle" : "Python sale del bucle")
+    : (b.result ? "Python entra en ese bloque" : "Python se salta ese bloque");
+  return `Ya se ejecutó la línea ${line}, que comprobó ${b.cond ?? "su condición"}, así que da ${b.result ? "True" : "False"} y ${then}.`;
+}
+
+function nowText(now: VarView[]): string {
+  return join(now.map((v) => `${v.name} ahora ${codeLike(v.value) ? "vale" : "es"} ${value(v.value)}`));
+}
+
+/** "el programa principal" / "la función f" / "la llamada anterior de f". */
+function placeName(p: string, inner: boolean): string {
+  if (inner) return `la llamada anterior de ${p}`;
+  return p === MODULE ? "el programa principal" : `la función ${p}`;
 }
 
 function output(o: OutputView): string {
@@ -108,17 +221,25 @@ function changes(c: Changes): string {
 function leadText(lead: Lead, tail: Tail): string {
   switch (lead.kind) {
     case "ran":
+      if (lead.items !== undefined) return `Ya se ejecutó la línea ${lead.line}: ${items(lead.items)}.`;
+      if (lead.check !== undefined) return check(lead.line, lead.check);
+      if (lead.branch !== undefined) return branch(lead.line, lead.branch);
       if (hasChanges(lead.changes)) return `Ya se ejecutó la línea ${lead.line}: ${changes(lead.changes)}.`;
       return tail.kind === "next" ? `Ya se ejecutó la línea ${lead.line}, pero no cambió ninguna variable.` : "";
     case "returned": {
       const who = lead.inner ? `La llamada interna a ${lead.fn}` : `La función ${lead.fn}`;
-      const base = lead.value !== undefined ? `${who} devolvió ${value(lead.value)}` : `${who} acabó`;
+      const base = lead.cls
+        ? `Python terminó de preparar la clase ${lead.fn}`
+        : lead.value !== undefined ? `${who} devolvió ${value(lead.value)}` : `${who} acabó`;
       if (lead.output !== undefined) {
         return `${base}, y la línea que la llamó terminó y mostró ${output(lead.output)} en pantalla.`;
       }
-      return tail.kind === "next" ? `${base} y Python volvió ${toPlace(lead.place)}.` : `${base}.`;
+      if (lead.now !== undefined) return `${base}; de vuelta en ${placeName(lead.place, lead.inner)}, ${nowText(lead.now)}.`;
+      const to = lead.inner ? `a la llamada anterior de ${lead.place}` : toPlace(lead.place);
+      return tail.kind === "next" ? `${base} y Python volvió ${to}.` : `${base}.`;
     }
     case "entered":
+      if (lead.cls) return `Python ya está dentro de la clase ${lead.place}.`;
       return lead.place === MODULE
         ? "Python ya está listo para ejecutar tu programa desde el principio."
         : `Python ya está dentro de la función ${lead.place}.`;
@@ -138,6 +259,13 @@ function tailText(tail: Tail, hasLead: boolean): string {
         ? `Ahora vuelve a tocar la línea ${tail.line}, que esta vez todavía no se ha ejecutado.`
         : `Ahora sigue la línea ${tail.line}, que todavía no se ha ejecutado.`;
     case "fnDone":
+      if (tail.cls) return hasLead ? `Ahora la clase ${tail.fn} ya está lista.` : `La clase ${tail.fn} ya está lista.`;
+      if (tail.toSelf) {
+        const who = hasLead ? `Ahora esta llamada a ${tail.fn} termina` : `Esta llamada a ${tail.fn} ya terminó`;
+        return tail.value !== undefined
+          ? `${who} y le devuelve ${value(tail.value)} a la llamada de ${tail.fn} que la estaba esperando.`
+          : `${who} y Python vuelve a la llamada de ${tail.fn} que la estaba esperando.`;
+      }
       if (hasLead) {
         return tail.value !== undefined
           ? `Ahora la función ${tail.fn} termina y devuelve ${value(tail.value)}.`
@@ -230,6 +358,15 @@ export function renderEs(plan: Plan): string {
     case "call": {
       const items = [...plan.params.map(variable), ...(plan.more ? ["más"] : [])];
       const params = items.length > 0 ? ` con ${join(items)}` : "";
+      if (plan.cls) {
+        return `Python empieza a preparar la clase ${plan.fn} leyendo las líneas que tiene dentro. Todavía no se ha ejecutado ninguna.`;
+      }
+      if (plan.recursive && plan.output === undefined) {
+        const first = plan.callerLine !== undefined
+          ? `En la línea ${plan.callerLine}, ${plan.fn} se llama a sí misma otra vez${params}.`
+          : `${plan.fn} se llama a sí misma otra vez${params}.`;
+        return `${first} Todavía no se ha ejecutado nada dentro de esta nueva llamada.`;
+      }
       let first: string;
       if (plan.callerLine === undefined) {
         first = `Python está llamando a la función ${plan.fn}${params}.`;

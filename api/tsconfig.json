@@ -16,5 +16,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["explain.ts"]
+  "include": ["explain.ts", "help.ts"]
 }

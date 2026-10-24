@@ -48,7 +48,7 @@ type TraceStep = {
   returnValue?: JsonValue;
   error?: { type: string; message: string };
   heap: Record<string, HeapObject>;
-  stack: StackFrame[];       // calling frames, outermost first
+  stack: StackFrame[];       // all active user frames, outermost first; last = current frame
 };
 
 type TraceResult = {
@@ -60,9 +60,10 @@ type TraceResult = {
 };
 ```
 
-- `TraceStep.locals` stays the current frame's locals. `stack` holds the
-  frames that called it, outermost first, and does not repeat the current
-  frame.
+- `TraceStep.locals` stays the current frame's locals. `stack` holds every
+  active user frame, outermost first; its last entry is the current frame, so
+  `stack.length` equals the number of active user frames (decided 2026-10-24,
+  wave 3).
 - Lists and tuples stay plain JSON arrays. A dict is always written as
   `{"__dict": ...}`, never as a plain JSON object.
 - Placeholders keep their existing `{"__type__": name}` shape.
@@ -93,6 +94,21 @@ type TraceResult = {
   timeout, start a fresh worker in the background.
 
 ## Explanation API rules
+- Provider: Gemini through the official `@google/genai` SDK (Interactions
+  API), key `GEMINI_API_KEY` in the server environment only. Always send
+  `store: false` so student code is not kept on Google's side, and
+  `retries: { strategy: "none" }` (SDK retries ignore our deadline; one call
+  ran for 165 s). Live checks: `api/live.check.mjs`, opt-in, never in
+  pre-commit (they use quota).
+  - `/api/explain`: `gemini-3.1-flash-lite`, minimal thinking, 5 s, one or
+    two sentences per step. A lite model because it is the most frequent call
+    and has its own free-tier quota.
+  - `/api/help`: `gemini-3.6-flash`, low thinking, 12 s, three levels for a wrong solution
+    (1 hint, no code; 2 what went wrong, no code; 3 a small fix to the
+    student's own code, never a whole solution). Replies are rejected (and
+    the built-in template is used) if levels 1-2 contain code, if any number
+    is not in the code, input, answers, error or line numbers, or if they are
+    too long.
 - LLM prompt: patient beginner tutor, one or two sentences, requested language,
   only values present in the snapshots, never future values, say the
   highlighted line has not run yet, decline unrelated requests.

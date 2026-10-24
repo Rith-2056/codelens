@@ -27,7 +27,8 @@ helpers).
   for a container that was too long) for anything that is not shown.
 - **Student-defined object**: an instance of a class created by the student's
   own code (for example `TreeNode`).
-- **Stack**: the user frames that called the current frame, outermost first.
+- **Stack**: every active user frame, outermost first; the last entry is the
+  current frame.
 
 ## Requirement 1: Contract (frozen, version 2026-10-24)
 **User story:** As every workstream, I want one agreed shape for data
@@ -71,9 +72,9 @@ tree nodes exactly as my code left them.
    `__getattribute__`, `__getattr__`, properties, or any other method that
    student code can override. Objects whose class makes that impossible SHALL
    become placeholders.
-7. Each step's `stack` SHALL list the calling user frames, outermost first,
-   with functionName, frameId, line, and locals, and SHALL NOT repeat the
-   current frame.
+7. Each step's `stack` SHALL list every active user frame, outermost first,
+   with functionName, frameId, line, and locals. The last entry SHALL be the
+   current frame, so `stack.length` equals the number of active user frames.
 
 ## Requirement 3: Limits
 **User story:** As a student, I want longer interview-style programs to finish

@@ -7,20 +7,34 @@
 // prev/curr snapshots. Shortening text therefore never cuts through a run of
 // digits, and lengths are only shown when a placeholder carries `__len__`.
 
-import type { JsonValue } from "../types/trace.ts";
+import type { HeapObject, JsonValue } from "../types/trace.ts";
+import { dictEntries, itemsOf, kindOf, resolveRef } from "./snapshot.ts";
+
+export { sameValue } from "./snapshot.ts";
+
+type Heap = Record<string, HeapObject>;
 
 /** A snapshot value prepared for a sentence. */
 export type ValueView =
   /** Python-style literal text, e.g. `[3, 1, 2]`, `"hi"`, `None`, `True`. */
   | { kind: "literal"; text: string }
   /** A tracer placeholder such as {"__type__": "list", "__len__": 12}. */
-  | { kind: "placeholder"; typeName: string; length?: number };
+  | { kind: "placeholder"; typeName: string; length?: number }
+  /**
+   * A student-defined object reached through {"__ref": id}. `fields` is a
+   * short `val=2` style summary of its primitive fields, if it has any.
+   * `typeName` is "" when the ref does not resolve in the step's heap.
+   * The heap id itself is never shown.
+   */
+  | { kind: "object"; typeName: string; fields?: string };
 
 const TOP_STRING_MAX = 40;
 const NESTED_STRING_MAX = 16;
 const CONTAINER_BUDGET = 48;
 const TYPE_NAME_MAX = 40;
 const ELLIPSIS = "…";
+const FIELDS_BUDGET = 40;
+const MAX_FIELDS = 3;
 
 type JsonObject = { [k: string]: JsonValue };
 
@@ -33,7 +47,12 @@ export function isPlaceholder(v: JsonValue): v is JsonObject {
   return isObject(v) && typeof v["__type__"] === "string";
 }
 
-export function viewValue(v: JsonValue): ValueView {
+export function viewValue(v: JsonValue, heap: Heap = {}): ValueView {
+  if (kindOf(v) === "ref") {
+    const obj = resolveRef(v, heap);
+    if (obj === undefined) return { kind: "object", typeName: "" };
+    return { kind: "object", typeName: proseText(String(obj.type), TYPE_NAME_MAX), fields: fieldSummary(obj, heap) };
+  }
   if (isPlaceholder(v)) {
     const len = v["__len__"];
     return {
@@ -42,31 +61,34 @@ export function viewValue(v: JsonValue): ValueView {
       length: typeof len === "number" ? len : undefined,
     };
   }
-  return { kind: "literal", text: literal(v, TOP_STRING_MAX, CONTAINER_BUDGET) };
+  return { kind: "literal", text: literal(v, heap, TOP_STRING_MAX, CONTAINER_BUDGET) };
 }
 
-/** Structural equality for snapshot values. */
-export function sameValue(a: JsonValue, b: JsonValue): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a)) {
-    if (!Array.isArray(b) || a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!sameValue(a[i], b[i])) return false;
-    }
-    return true;
+/**
+ * `val=2, name="x"` for a heap object's primitive fields (None, refs and
+ * containers are left out), or undefined when it has none.
+ */
+function fieldSummary(obj: HeapObject, heap: Heap): string | undefined {
+  const fields = obj.fields !== null && typeof obj.fields === "object" ? obj.fields : {};
+  const parts: Array<() => string> = [];
+  for (const name of Object.keys(fields)) {
+    const f = fields[name];
+    if (f === null || typeof f === "object") continue;
+    if (parts.length === MAX_FIELDS) break;
+    parts.push(() => proseText(name, NESTED_STRING_MAX) + "=" + literal(f, heap, NESTED_STRING_MAX, FIELDS_BUDGET));
   }
-  if (isObject(a)) {
-    if (!isObject(b)) return false;
-    const ka = Object.keys(a);
-    const kb = Object.keys(b);
-    if (ka.length !== kb.length) return false;
-    for (const k of ka) {
-      if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-      if (!sameValue(a[k], b[k])) return false;
-    }
-    return true;
-  }
-  return false;
+  if (parts.length === 0) return undefined;
+  const text = container("", "", parts, FIELDS_BUDGET);
+  return text;
+}
+
+/** `TreeNode(val=2)`, or `<TreeNode>` when it has no primitive fields; used inside containers. */
+function objectLiteral(v: JsonValue, heap: Heap): string {
+  const obj = resolveRef(v, heap);
+  if (obj === undefined) return "<object>";
+  const typeName = cleanUnits(proseText(String(obj.type), TYPE_NAME_MAX), false);
+  const fields = fieldSummary(obj, heap);
+  return fields === undefined ? "<" + typeName + ">" : typeName + "(" + fields + ")";
 }
 
 function isNumChar(c: string | undefined): boolean {
@@ -143,23 +165,35 @@ export function proseText(s: string, max: number): string {
   return cleanUnits(text, false) + (cut ? ELLIPSIS : "");
 }
 
-function literal(v: JsonValue, stringMax: number, budget: number): string {
+function literal(v: JsonValue, heap: Heap, stringMax: number, budget: number): string {
   if (v === null) return "None";
   if (typeof v === "boolean") return v ? "True" : "False";
   if (typeof v === "number") return String(v);
   if (typeof v === "string") return pyString(v, stringMax);
-  if (Array.isArray(v)) {
-    return container("[", "]", v.map((item) => () => literal(item, NESTED_STRING_MAX, budget / 2)), budget);
+  const nested = (item: JsonValue) => () => literal(item, heap, NESTED_STRING_MAX, budget / 2);
+  switch (kindOf(v)) {
+    case "array":
+    case "grid":
+      return container("[", "]", (v as JsonValue[]).map(nested), budget);
+    case "placeholder":
+      return "<" + cleanUnits((v as JsonObject)["__type__"] as string, false) + ">";
+    case "ref":
+      return objectLiteral(v, heap);
+    case "set": {
+      const items = itemsOf(v);
+      return items.length === 0 ? "set()" : container("{", "}", items.map(nested), budget);
+    }
+    case "deque":
+      return "deque(" + container("[", "]", itemsOf(v).map(nested), budget - 7) + ")";
+    case "dict": {
+      const pairs = dictEntries(v).map(([k, val]) => () =>
+        literal(k, heap, NESTED_STRING_MAX, budget / 2) + ": " + literal(val, heap, NESTED_STRING_MAX, budget / 2),
+      );
+      return container("{", "}", pairs, budget);
+    }
+    default:
+      return "<object>";
   }
-  if (isPlaceholder(v)) return "<" + cleanUnits(v["__type__"] as string, false) + ">";
-  return container(
-    "{",
-    "}",
-    Object.keys(v).map(
-      (k) => () => pyString(k, NESTED_STRING_MAX) + ": " + literal(v[k], NESTED_STRING_MAX, budget / 2),
-    ),
-    budget,
-  );
 }
 
 /** Render items until the budget is used up; every shown item is complete. */

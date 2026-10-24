@@ -8,7 +8,7 @@
 // in protocol.ts (PYODIDE_VERSION) anywhere, e.g. `npm i pyodide@0.29.5` in a
 // temp dir, and pass its directory. Exits non-zero on any mismatch.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
@@ -34,8 +34,13 @@ const loadMs = performance.now() - t0;
 
 // Mirror the worker: write tracer.py (and the lesson list) into the FS, import.
 pyodide.FS.mkdirTree("/codelens/frontend/src/py");
-for (const f of ["tracer.py", "gen_fixtures.py"]) {
+for (const f of ["tracer.py", "practice.py", "gen_fixtures.py"]) {
   pyodide.FS.writeFile(`/codelens/frontend/src/py/${f}`, readFileSync(join(pyDir, f), "utf8"), { encoding: "utf8" });
+}
+// gen_fixtures imports practice, which reads the repo's shared/practice folder.
+pyodide.FS.mkdirTree("/codelens/shared/practice");
+for (const f of readdirSync(join(repo, "shared/practice"))) {
+  pyodide.FS.writeFile(`/codelens/shared/practice/${f}`, readFileSync(join(repo, "shared/practice", f), "utf8"), { encoding: "utf8" });
 }
 const traceJson = pyodide.runPython(
   "import sys\nsys.path.insert(0, '/codelens/frontend/src/py')\nimport tracer\ntracer.trace_json",
@@ -64,11 +69,57 @@ function firstDiff(a, b) {
   return `top-level: got ${JSON.stringify({ ...a, steps: undefined })} expected ${JSON.stringify({ ...b, steps: undefined })}`;
 }
 
+// Expected output of each Level 2 lesson (.kiro/specs/ds-visualizers/design.md).
+const level2Output = {
+  "pair-sum": "[1, 2]\n",
+  "any-repeats": "True\n",
+  "sorted-pair": "[4, 6]\n",
+  "network-hops": "{'A': 0, 'B': 1, 'C': 1, 'D': 2, 'E': 3}\n",
+  "tree-height": "4\n",
+  stairs: "13\n",
+};
+// Every lesson must trace in under 1 s in Pyodide (Requirement 7.4).
+const LESSON_MS = 1000;
+
+check("all nine lessons are listed", Object.keys(lessons).length === 9, Object.keys(lessons).join(", "));
 for (const [name, source] of Object.entries(lessons)) {
-  const got = JSON.parse(traceJson(source));
+  const t = performance.now();
+  const text = traceJson(source);
+  const ms = performance.now() - t;
+  const got = JSON.parse(text);
   const want = JSON.parse(readFileSync(join(fixturesDir, `${name}.json`), "utf8"));
   const same = isDeepStrictEqual(got, want);
-  check(`${name} lesson equals shared/fixtures/${name}.json`, same, same ? `(${got.steps.length} steps)` : firstDiff(got, want));
+  check(
+    `${name} lesson equals shared/fixtures/${name}.json`,
+    same,
+    same ? `(${got.steps.length} steps, ${ms.toFixed(0)} ms, ${(text.length / 1024).toFixed(0)} KiB)` : firstDiff(got, want),
+  );
+  check(`${name} traces in under ${LESSON_MS} ms`, ms < LESSON_MS, `${ms.toFixed(1)} ms`);
+  if (name in level2Output) {
+    const out = got.steps.at(-1)?.stdout;
+    check(`${name} prints ${JSON.stringify(level2Output[name])}`, got.status === "ok" && out === level2Output[name], `got ${JSON.stringify(out)}`);
+  }
+}
+
+// Every ref in every step resolves, and the stack ends with the current frame.
+function shapeProblems(r) {
+  const problems = [];
+  const refs = (v, out) => {
+    if (Array.isArray(v)) v.forEach((x) => refs(x, out));
+    else if (v && typeof v === "object") {
+      if (typeof v.__ref === "string") out.push(v.__ref);
+      Object.values(v).forEach((x) => refs(x, out));
+    }
+    return out;
+  };
+  for (const s of r.steps) {
+    const found = refs([s.locals, s.returnValue ?? null, s.stack.map((f) => f.locals), Object.values(s.heap).map((o) => o.fields)], []);
+    for (const id of found) if (!s.heap[id] || s.heap[id].id !== id) problems.push(`step ${s.index}: ref ${id} does not resolve`);
+    if (s.stack.length !== s.depth + 1) problems.push(`step ${s.index}: stack length ${s.stack.length} vs depth ${s.depth}`);
+    const top = s.stack.at(-1);
+    if (!top || top.frameId !== s.frameId || !isDeepStrictEqual(top.locals, s.locals)) problems.push(`step ${s.index}: last frame is not the current frame`);
+  }
+  return problems;
 }
 
 const limitCases = {
@@ -82,6 +133,32 @@ for (const [name, source] of Object.entries(limitCases)) {
   const r = JSON.parse(traceJson(source));
   const ms = performance.now() - t;
   check(`${name} -> limit`, r.status === "limit" && ms < 2000, `status=${r.status} steps=${r.steps.length} ${ms.toFixed(0)} ms`);
+}
+
+// Timing against the worker's 3 s timeout (TRACE_TIMEOUT_MS in traceClient.ts).
+const WORKER_TIMEOUT_MS = 3000;
+const timingCases = {
+  // design.md "Risks": a 2000-step loop that mutates a 20-item list and dict.
+  "2000-step loop mutating a 20-item list and dict":
+    "nums = list(range(20))\nd = {i: i for i in range(20)}\ni = 0\nwhile True:\n    nums[i % 20] += 1\n    d[i % 20] = nums[i % 20]\n    i += 1\n",
+  "2000-step loop over a 30-node tree":
+    "class N:\n    def __init__(self, v, l=None, r=None):\n        self.v = v\n        self.l = l\n        self.r = r\n\n" +
+    "def build(lo, hi):\n    if lo > hi:\n        return None\n    mid = (lo + hi) // 2\n    return N(mid, build(lo, mid - 1), build(mid + 1, hi))\n\n" +
+    "root = build(1, 30)\nwhile True:\n    root.v += 1\n",
+  "runaway recursion": "def f(n):\n    return f(n + 1)\n\nf(0)\n",
+  "trace byte cap": "rows = ['x' * 200] * 20\nwhile True:\n    pass\n",
+};
+for (const [name, source] of Object.entries(timingCases)) {
+  const t = performance.now();
+  const text = traceJson(source);
+  const ms = performance.now() - t;
+  const r = JSON.parse(text);
+  const problems = shapeProblems(r);
+  check(
+    `${name} -> limit within ${WORKER_TIMEOUT_MS} ms`,
+    r.status === "limit" && ms < WORKER_TIMEOUT_MS && problems.length === 0,
+    `steps=${r.steps.length} ${ms.toFixed(0)} ms ${(text.length / 1e6).toFixed(2)} MB ${JSON.stringify(r.message)}${problems.length ? " " + problems[0] : ""}`,
+  );
 }
 
 const misc = [
@@ -136,6 +213,15 @@ const corpus = [
   "s = 'abc' * 1000\nprint(len(s))\n",
   "for i in range(400):\n    print(i)\n",
   "def h():\n    raise ValueError('bad')\n\ntry:\n    h()\nexcept ValueError as e:\n    msg = str(e)\nprint(msg)\n",
+  // 2026-10-24 value forms. Pyodide's string hash seed differs from CPython's,
+  // so set order here also checks the hash-seed-independent sort.
+  "s = {'pear', 'fig', 'apple', 'kiwi'}\nt = frozenset({('b', 1), ('a', 2), (None, 0)})\nm = {3, 'x', None, False, 2.5}\n",
+  "from collections import deque\nq = deque(['a', 'b'])\nq.appendleft('z')\nx = q.pop()\nd = {4: 0, (1, 2): 'pair', None: [1, {'k': {2, 1}}]}\n",
+  "a = []\na.append(a)\nd = {}\nd['me'] = d\ndeep = [[[[[1]]]]]\nbig = list(range(25))\n",
+  "class P:\n    pass\n\na = P()\nb = P()\na.o = b\nb.o = a\nc = a\nitems = [a, b]\n",
+  "class G:\n    def __getattr__(self, n):\n        return 1\n\nclass S:\n    __slots__ = ('x',)\n\nclass L(list):\n    pass\n\ng, s, l = G(), S(), L()\n",
+  "def fib(n):\n    if n < 2:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\nprint(fib(6))\n",
+  ...Object.values(timingCases),
 ];
 const cpython = process.env.CPYTHON ?? join(repo, ".venv/bin/python");
 let cpyResults = null;
@@ -174,6 +260,60 @@ for (const source of [...Object.values(lessons), 'e = "🎉ñ"\n']) {
   if (hex !== py) check(`codeHash matches for ${JSON.stringify(source.slice(0, 20))}`, false, `${hex} vs ${py}`);
 }
 check("WebCrypto codeHash == tracer.code_hash", true);
+
+// ---- Practice harness, loaded the way trace.worker.ts loads it: tracer.py and
+// practice.py in one folder, the problem data in ./practice next to them.
+const practiceDir = join(repo, "shared/practice");
+pyodide.FS.mkdirTree("/codelens/w/practice");
+for (const f of ["tracer.py", "practice.py"]) {
+  pyodide.FS.writeFile(`/codelens/w/${f}`, readFileSync(join(pyDir, f), "utf8"), { encoding: "utf8" });
+}
+for (const f of readdirSync(practiceDir)) {
+  pyodide.FS.writeFile(`/codelens/w/practice/${f}`, readFileSync(join(practiceDir, f), "utf8"), { encoding: "utf8" });
+}
+const practiceTrace = pyodide.runPython(
+  // Drop the copy gen_fixtures imported from the repo layout, so this loads /codelens/w/practice.py like the worker does.
+  "import sys\nsys.path.insert(0, '/codelens/w')\nsys.modules.pop('practice', None)\nimport practice\npractice.trace_example_json",
+);
+const practiceCheck = pyodide.runPython("practice.check_json");
+const problemsJson = JSON.parse(readFileSync(join(practiceDir, "problems.json"), "utf8"));
+check("practice data found next to practice.py", pyodide.runPython("str(practice.DATA_DIR)") === "/codelens/w/practice");
+for (const [slug, p] of Object.entries(problemsJson)) {
+  const args = JSON.stringify(p.examples[0].args);
+  const t0p = performance.now();
+  const mine = JSON.parse(practiceTrace(slug, null, args));
+  const ms = performance.now() - t0p;
+  const fixture = JSON.parse(readFileSync(join(fixturesDir, "practice", `${slug}.json`), "utf8"));
+  // Deep equality: the fixture file stores top-level keys in a fixed order.
+  const same = isDeepStrictEqual(mine, fixture);
+  check(`practice ${slug}: reference trace == fixture`, same, same ? "" : firstDiff(mine.trace, fixture.trace));
+  check(`practice ${slug}: traced in under ${LESSON_MS} ms`, ms < LESSON_MS, `${ms.toFixed(1)} ms`);
+  for (const ex of p.examples) {
+    const res = JSON.parse(practiceCheck(slug, readFileSync(join(practiceDir, `${slug}.py`), "utf8"), JSON.stringify(ex.args)));
+    if (!res.correct) check(`practice ${slug}: reference passes ${JSON.stringify(ex.args)}`, false, JSON.stringify(res));
+  }
+}
+const wrongStairs = "class Solution:\n    def climbStairs(self, n):\n        return n\n";
+const wrong = JSON.parse(practiceCheck("climbing-stairs", wrongStairs, "[4]"));
+check("practice check flags a wrong answer", wrong.correct === false && wrong.got === 4 && wrong.expected === 5, JSON.stringify(wrong));
+const forever = "class Solution:\n    def climbStairs(self, n):\n        while True:\n            pass\n";
+const tf = performance.now();
+const stuck = JSON.parse(practiceCheck("climbing-stairs", forever, "[3]"));
+const stuckMs = performance.now() - tf;
+check("practice check stops a runaway loop quickly", stuck.error?.type === "StepLimit" && stuckMs < 2000, `${stuck.error?.type} ${stuckMs.toFixed(0)} ms`);
+
+// Counterexample search under Pyodide: finds a planted bug's smallest input,
+// and searching a correct solution fits the worker's 3 s timeout.
+const findCx = pyodide.runPython("practice.find_counterexample_json");
+const offByOne = "class Solution:\n    def climbStairs(self, n):\n        ways = [1, 1] + [0] * n\n        for i in range(2, n):\n            ways[i] = ways[i - 1] + ways[i - 2]\n        return ways[n]\n";
+const cx = JSON.parse(findCx("climbing-stairs", offByOne));
+check("counterexample search finds the smallest failing input", cx.found && JSON.stringify(cx.args) === "[2]", JSON.stringify(cx));
+for (const slug of Object.keys(problemsJson)) {
+  const ts = performance.now();
+  const r = JSON.parse(findCx(slug, readFileSync(join(practiceDir, `${slug}.py`), "utf8")));
+  const ms = performance.now() - ts;
+  check(`counterexample search on the ${slug} reference: none found, under 2500 ms`, !r.found && ms < 2500, `${r.tried} inputs${r.complete ? "" : " (time budget hit)"}, ${ms.toFixed(0)} ms`);
+}
 
 console.log(failures ? `\n${failures} check(s) FAILED` : "\nall Pyodide checks passed");
 process.exit(failures ? 1 : 0);

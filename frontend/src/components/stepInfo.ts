@@ -1,5 +1,5 @@
-import type { JsonValue, TraceStep } from "../types/trace";
-import { valueKey } from "./values";
+import type { JsonValue, TraceStep } from "../types/trace.ts";
+import { sameValue } from "../explain/snapshot.ts";
 
 // The step to compare against when looking for changes: the nearest earlier
 // step in the same frame. Inside one frame this is simply steps[i - 1]; it
@@ -35,7 +35,7 @@ export function diffLocals(
       return { name, value, change: { kind: "new" } };
     }
     const before = previous[name] ?? null;
-    if (valueKey(before) === valueKey(value)) {
+    if (sameValue(before, value)) {
       return { name, value, change: { kind: "same" } };
     }
     return { name, value, change: { kind: "changed", before } };
