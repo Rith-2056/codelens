@@ -1,0 +1,166 @@
+// The problem page: write a class Solution, run it on an example, see the
+// verdict, step through your run, and (on request) the correct solution next
+// to it. The worker is mocked; its answers are realistic shapes.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import axe from "axe-core";
+import type { JsonValue, TraceResult } from "../types/trace";
+import twoSumRaw from "../../../shared/fixtures/practice/two-sum.json?raw";
+import { problemBySlug } from "../problems";
+
+const fixture = JSON.parse(twoSumRaw) as { program: string; trace: TraceResult };
+
+const tracePractice = vi.fn<(slug: string, source: string | null, args: JsonValue[]) => Promise<{ program: string; trace: TraceResult }>>();
+const checkPractice = vi.fn<(slug: string, source: string, args: JsonValue[]) => Promise<{ correct: boolean; got: JsonValue; expected: JsonValue; error: { type: string; message: string } | null }>>();
+vi.mock("../worker/traceClient", () => ({
+  TRACE_TIMEOUT_MS: 3000,
+  preloadTracer: () => Promise.resolve(),
+  onTracerStatus: (listener: (s: "loading" | "ready" | "error") => void) => {
+    listener("ready");
+    return () => {};
+  },
+  runTrace: () => Promise.reject(new Error("not used")),
+  tracePractice: (slug: string, source: string | null, args: JsonValue[]) => tracePractice(slug, source, args),
+  checkPractice: (slug: string, source: string, args: JsonValue[]) => checkPractice(slug, source, args),
+}));
+
+import ProblemPage from "./ProblemPage";
+
+const twoSum = problemBySlug("two-sum")!;
+
+beforeEach(() => {
+  tracePractice.mockReset();
+  checkPractice.mockReset();
+  vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+  // The student's run reuses the reference fixture's trace shape.
+  tracePractice.mockImplementation(async () => fixture);
+  checkPractice.mockResolvedValue({ correct: true, got: [2, 3], expected: [2, 3], error: null });
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+const editor = () => screen.getByRole("textbox", { name: /your solution/i }) as HTMLTextAreaElement;
+async function run() {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+  });
+  await screen.findByRole("region", { name: "Your solution's run" });
+}
+
+describe("problem page", () => {
+  it("starts the editor with the class Solution stub", () => {
+    render(<ProblemPage problem={twoSum} />);
+    expect(editor().value).toMatch(/^class Solution:\n {4}def twoSum\(self, nums: List\[int\], target: int\) -> List\[int\]:\n/);
+  });
+
+  it("offers our own examples, shown the way Python writes them", () => {
+    render(<ProblemPage problem={twoSum} />);
+    const group = screen.getByRole("group", { name: "Examples" });
+    const buttons = within(group).getAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      "nums = [3, 8, 5, 1], target = 6",
+      "nums = [4, 4], target = 8",
+      "nums = [-2, 7, 11, 5], target = 9",
+    ]);
+    expect(buttons[0]!.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("runs the student's code on the chosen example, checks it, and shows its steps", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    fireEvent.click(screen.getByRole("button", { name: "nums = [4, 4], target = 8" }));
+    fireEvent.change(editor(), { target: { value: "class Solution:\n    def twoSum(self, nums, target):\n        return [0, 1]\n" } });
+    await run();
+    expect(checkPractice).toHaveBeenCalledWith("two-sum", editor().value, [[4, 4], 8]);
+    expect(tracePractice).toHaveBeenCalledWith("two-sum", editor().value, [[4, 4], 8]);
+    expect(screen.getByRole("status", { name: "Result" }).textContent).toBe("Correct: your solution returned [2, 3] for this input.");
+    const mine = screen.getByRole("region", { name: "Your solution's run" });
+    expect(within(mine).getByRole("slider").getAttribute("aria-valuetext")).toMatch(/^Step 1 of \d+/);
+  });
+
+  it("says what was returned and what was expected when the answer is wrong", async () => {
+    checkPractice.mockResolvedValue({ correct: false, got: [0, 0], expected: [2, 3], error: null });
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    expect(screen.getByRole("status", { name: "Result" }).textContent).toBe(
+      "Not yet: your solution returned [0, 0], but the correct answer is [2, 3].",
+    );
+  });
+
+  it("keeps the correct solution hidden until the student asks for it", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    expect(screen.queryByRole("button", { name: /show the correct solution/i })).toBeNull(); // not before a run
+    await run();
+    expect(screen.queryByRole("region", { name: "Correct solution's run" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /show the correct solution/i }));
+    });
+    const ref = await screen.findByRole("region", { name: "Correct solution's run" });
+    // Example 1's reference run comes from the bundled fixture, not the worker.
+    expect(tracePractice).not.toHaveBeenCalledWith("two-sum", null, expect.anything());
+    expect(within(ref).getByRole("slider").getAttribute("aria-valuetext")).toBe(
+      `Step 1 of ${fixture.trace.steps.length}, line ${fixture.trace.steps[0]!.line}`,
+    );
+  });
+
+  it("traces the reference in Python for the other examples", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    fireEvent.click(screen.getByRole("button", { name: "nums = [4, 4], target = 8" }));
+    await run();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /show the correct solution/i }));
+    });
+    await waitFor(() => expect(tracePractice).toHaveBeenCalledWith("two-sum", null, [[4, 4], 8]));
+  });
+
+  it("arrow keys step only the viewer that has focus", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /show the correct solution/i }));
+    });
+    const mine = screen.getByRole("region", { name: "Your solution's run" });
+    const ref = await screen.findByRole("region", { name: "Correct solution's run" });
+    const stepOf = (r: HTMLElement) => within(r).getByRole("slider").getAttribute("aria-valuetext")!.split(",")[0];
+    fireEvent.keyDown(within(mine).getByRole("button", { name: "Next" }), { key: "ArrowRight" });
+    expect(stepOf(mine)).toBe("Step 2 of " + fixture.trace.steps.length);
+    expect(stepOf(ref)).toBe("Step 1 of " + fixture.trace.steps.length);
+  });
+
+  it("hides the Solution object's `self` from the variables", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    const mine = screen.getByRole("region", { name: "Your solution's run" });
+    const slider = within(mine).getByRole("slider");
+    const inMethod = fixture.trace.steps.findIndex((s) => s.functionName === "twoSum" && "self" in s.locals);
+    fireEvent.change(slider, { target: { value: String(inMethod) } });
+    const names = [...mine.querySelectorAll("table.vars tbody tr")].map((r) => r.querySelector("th, td")?.textContent?.trim());
+    expect(names).toContain("nums");
+    expect(names).not.toContain("self");
+  });
+
+  it("clears the result when the code changes", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    fireEvent.change(editor(), { target: { value: editor().value + "\n# edited\n" } });
+    expect(screen.queryByRole("status", { name: "Result" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Your solution's run" })).toBeNull();
+  });
+
+  it("has no accessibility violations with both runs showing", async () => {
+    // Wrapped in <main> as the app shell does, so page content sits in a landmark.
+    render(
+      <main>
+        <ProblemPage problem={twoSum} />
+      </main>,
+    );
+    await run();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /show the correct solution/i }));
+    });
+    await screen.findByRole("region", { name: "Correct solution's run" });
+    const result = await axe.run(document.body, { rules: { "color-contrast": { enabled: false } } });
+    expect(result.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  });
+});

@@ -9,6 +9,9 @@ type Props = {
   index: number; // 0-based
   total: number;
   onIndexChange: (index: number) => void;
+  /** Left/Right arrows anywhere on the page step this timeline (the default).
+   *  Pages with two timelines turn this off and handle keys per viewer. */
+  globalKeys?: boolean;
 };
 
 // Arrow keys must keep working normally while the student is typing.
@@ -23,7 +26,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 // Previous / Next over the stored trace. Stepping back only changes which
 // recorded step is shown; nothing is re-run.
-export default function Timeline({ index, total, onIndexChange }: Props) {
+export default function Timeline({ index, total, onIndexChange, globalKeys = true }: Props) {
   const last = total - 1;
   const atStart = index <= 0;
   const atEnd = index >= last;
@@ -38,6 +41,7 @@ export default function Timeline({ index, total, onIndexChange }: Props) {
   stepByRef.current = (delta: number) => goTo(index + delta);
 
   useEffect(() => {
+    if (!globalKeys) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) {
         return;
@@ -49,7 +53,7 @@ export default function Timeline({ index, total, onIndexChange }: Props) {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [globalKeys]);
 
   return (
     <div className="timeline" role="group" aria-label="Step through the program">

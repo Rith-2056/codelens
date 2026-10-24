@@ -1370,3 +1370,63 @@ a {
     font-size: 1.8rem;
   }
 }
+
+/* Problem page */
+.problem-top {
+  display: grid;
+  gap: 16px;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.example-button {
+  min-height: 40px;
+  padding: 6px 14px;
+  border: 2px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.example-button[aria-pressed="true"] {
+  background: var(--fg);
+  color: var(--panel);
+  border-color: var(--fg);
+}
+
+.example-button[aria-pressed="true"]::before {
+  content: "✓ ";
+}
+
+.viewers {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (min-width: 1000px) {
+  .viewers-two {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.viewer-title {
+  margin: 0 0 10px;
+  font-size: 1.15rem;
+}
+
+@media (forced-colors: active) {
+  .example-button[aria-pressed="true"] {
+    border: 2px solid Highlight;
+  }
+}

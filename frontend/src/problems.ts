@@ -1,11 +1,19 @@
 // The Level 2 practice problems. Titles, numbers, slugs, difficulty and method
 // signatures match LeetCode so students practise in the format interviews use.
 // The problem statements are our own words (never copied), in English and
-// Spanish.
+// Spanish. Parameter names and examples come from shared/practice/problems.json,
+// the same file the Python harness reads.
+import type { JsonValue } from "./types/trace";
+import practiceRaw from "../../shared/practice/problems.json?raw";
 
 export type Difficulty = "Easy" | "Medium" | "Hard";
 
-export type Problem = {
+export type Example = { args: JsonValue[]; expected: JsonValue };
+
+type PracticeData = { params: string[]; tree_params?: string[]; examples: Example[] };
+const practiceData = JSON.parse(practiceRaw) as Record<string, PracticeData>;
+
+type ProblemText = {
   slug: string;
   number: number;
   title: string;
@@ -19,7 +27,16 @@ export type Problem = {
   statement: { en: string; es: string };
 };
 
-export const problems: readonly Problem[] = [
+export type Problem = ProblemText & {
+  /** Parameter names, in order. */
+  params: readonly string[];
+  /** Parameters given as a level-order list and built into a TreeNode. */
+  treeParams: readonly string[];
+  /** Our own example inputs with their correct answers. */
+  examples: readonly Example[];
+};
+
+const texts: readonly ProblemText[] = [
   {
     slug: "two-sum",
     number: 1,
@@ -99,6 +116,12 @@ export const problems: readonly Problem[] = [
     },
   },
 ];
+
+export const problems: readonly Problem[] = texts.map((p) => {
+  const data = practiceData[p.slug];
+  if (!data) throw new Error(`no practice data for ${p.slug}`);
+  return { ...p, params: data.params, treeParams: data.tree_params ?? [], examples: data.examples };
+});
 
 export function problemBySlug(slug: string): Problem | undefined {
   return problems.find((p) => p.slug === slug);

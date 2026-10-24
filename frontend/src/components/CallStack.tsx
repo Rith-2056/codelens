@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { TraceStep } from "../types/trace";
 import { aliasesIn, framesOf, frameTitle } from "./structures";
 import { formatValue, type Heap } from "./values";
@@ -16,9 +17,10 @@ export default function CallStack({ step }: Props) {
   const topFirst = frames.slice().reverse();
   const shown = topFirst.slice(0, MAX_CARDS);
   const hidden = topFirst.length - shown.length;
+  const headingId = useId(); // unique: a page can show two runs side by side
   return (
-    <section className="call-stack" aria-labelledby="stack-heading">
-      <h3 className="subheading" id="stack-heading">
+    <div className="call-stack" role="group" aria-labelledby={headingId}>
+      <h3 className="subheading" id={headingId}>
         Call stack
       </h3>
       <p className="hint stack-hint">
@@ -69,6 +71,6 @@ export default function CallStack({ step }: Props) {
         })}
         {hidden > 0 && <li className="frame frame-more">…and {hidden} more calls below, ending with the main program.</li>}
       </ol>
-    </section>
+    </div>
   );
 }

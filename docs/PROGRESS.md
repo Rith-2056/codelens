@@ -154,7 +154,7 @@ Decisions (2026-10-24):
 |---|---|---|
 | 7 | Swap Claude for Gemini in `/api/explain` | done |
 | 8 | Pages and navigation, glassy iOS-style UI | done |
-| 9 | LeetCode problems with reference solutions | 9a, 9b-1 done; 9b-2 (problem page UI) todo |
+| 9 | LeetCode problems with reference solutions | 9a, 9b-1, 9b-2 done; 9b-3 (playground cleanup) todo |
 | 10 | Counterexample search in Pyodide | todo |
 | 11 | Three-level AI help (hint, explanation, possible fix) | todo |
 | 12 | Mistake categories and saved sessions | todo |
@@ -277,3 +277,42 @@ Decisions (2026-10-24):
   in about 4 ms.
 - **Checks:** all green (216 pytest, 111 node tests, 74 vitest, typecheck,
   build, bundle size, Pyodide check).
+
+### Stage 9b-2: the problem page
+- **Tests written first**, run red, then made green:
+  - `practiceView.test.ts` (4): hide a field-less Solution `self`; format
+    inputs as Python; plain-words verdicts (correct / wrong with both answers /
+    error / runaway)
+  - `ProblemPage.test.tsx` (10): starter `class Solution` stub; our three
+    examples as buttons; Run checks and traces the chosen example; wrong-answer
+    message; the correct solution is hidden until asked (example 1 from the
+    lazy fixture, others traced by Python); arrow keys step only the focused
+    viewer; `self` is hidden; editing clears the result; axe with both runs
+    showing
+- **Found by the axe test:**
+  - Two viewers duplicated landmarks ("Data structures", "Call stack",
+    "Program code"). The inner panels are now labeled groups, and so are the
+    scroll boxes (stage 3 had made them regions; two tests updated, reason
+    stated).
+  - Fixed ids (`ds-heading`, `step-scrubber`, ...) are now per-instance
+    `useId`.
+- **Test fixes, stated:** the axe test wraps the page in `<main>` like the app
+  shell does.
+- **Test timeout:** raised to 20 s. The machine's load average hit 45 from
+  system processes, and the whole-app tests took up to 142 s during one run.
+  They pass in about 2 s normally, and 20 s still catches a real hang. The
+  next runs were green.
+- **Code:**
+  - `StepViewer` (a run you can step through, keys scoped to the viewer)
+  - `ProblemPage` (editor, examples, Run, verdict, opt-in correct solution side
+    by side)
+  - `Timeline`'s `globalKeys` option
+  - problem params and examples read from `shared/practice/problems.json`
+- **Real browser + Pyodide:** a wrong Two Sum (adds a number to itself) gives
+  "Not yet: your solution returned [0, 0], but the correct answer is [2, 3]."
+  in 0.86 s, and both runs show side by side. axe with contrast: 0 violations
+  in light and dark; no sideways scroll at 400 px.
+- **Noticed, not fixed:** at very narrow widths, long code lines in the editor
+  wrap and push the line numbers out of step (from wave 2).
+- **Checks:** all green (216 pytest, 111 node tests, 88 vitest, typecheck,
+  build, bundle size).

@@ -83,7 +83,7 @@ describe("app shell", () => {
     await go(/^1971\. Find if Path Exists/);
     const box = document.querySelector("pre.signature")!;
     expect(box.getAttribute("tabindex")).toBe("0");
-    expect(box.getAttribute("role")).toBe("region");
+    expect(box.getAttribute("role")).toBe("group");
     expect(box.getAttribute("aria-label")).toMatch(/solution/i);
   });
 

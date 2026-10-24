@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useId } from "react";
 import type { TraceStep } from "../types/trace";
 import { findChange } from "./jump";
 
@@ -13,6 +13,8 @@ type Props = {
 // trace so the chosen variable resets when a different trace is shown.
 export default function JumpToChange({ steps, index, names, onJump }: Props) {
   const [name, setName] = useState(names[0] ?? "");
+  const labelId = useId(); // unique: a page can show two runs side by side
+  const selectId = useId();
   const [message, setMessage] = useState<{ at: number; text: string } | null>(null);
   if (names.length === 0) return null;
   const chosen = names.includes(name) ? name : names[0]!;
@@ -28,12 +30,12 @@ export default function JumpToChange({ steps, index, names, onJump }: Props) {
   }
 
   return (
-    <div className="jump" role="group" aria-labelledby="jump-label">
-      <label id="jump-label" htmlFor="jump-var" className="jump-label">
+    <div className="jump" role="group" aria-labelledby={labelId}>
+      <label id={labelId} htmlFor={selectId} className="jump-label">
         Jump to a change of
       </label>
       <select
-        id="jump-var"
+        id={selectId}
         className="jump-select"
         value={chosen}
         onChange={(e) => {

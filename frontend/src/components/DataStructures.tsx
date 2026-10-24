@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { HeapObject, JsonValue, StackFrame } from "../types/trace";
 import { scrollBox } from "./scrollBox";
 import { dictEntries, itemsOf, resolveRef, sameValue, type Change } from "../explain/snapshot";
@@ -29,9 +30,10 @@ export default function DataStructures({ items, locals, heap, line, frames = [] 
   const shown = trees.length ? items.filter((it) => !(it.view === "ref" && isTreeNodeRef(it.value, heap))) : items;
   if (shown.length === 0 && trees.length === 0) return null;
   const badges = trees.length ? treeBadges(frames, heap) : new Map<string, string[]>();
+  const headingId = useId(); // unique: a page can show two runs side by side
   return (
-    <section className="ds" aria-labelledby="ds-heading">
-      <h3 className="subheading" id="ds-heading">
+    <div className="ds" role="group" aria-labelledby={headingId}>
+      <h3 className="subheading" id={headingId}>
         Data structures
       </h3>
       <ul className="ds-list">
@@ -56,7 +58,7 @@ export default function DataStructures({ items, locals, heap, line, frames = [] 
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }
 

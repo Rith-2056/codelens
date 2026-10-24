@@ -274,7 +274,8 @@ describe("accessibility", () => {
           const where = `${lesson.id}: ${box.className}`;
           seen.add(box.className);
           expect(box.getAttribute("tabindex"), where).toBe("0");
-          expect(box.getAttribute("role"), where).toBe("region");
+          // A labeled group, not a landmark: two side-by-side runs would duplicate landmarks.
+          expect(box.getAttribute("role"), where).toBe("group");
           expect(box.getAttribute("aria-label") ?? "", where).not.toBe("");
         }
       });

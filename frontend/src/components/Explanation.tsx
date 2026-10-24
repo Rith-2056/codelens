@@ -10,7 +10,7 @@ type Props = {
   lang: Lang;
   code: string; // the source the trace came from
   codeHash: string;
-  traceId: number; // changes whenever a different trace is shown
+  traceId: number | string; // changes whenever a different trace is shown
 };
 
 // Wait this long on a step before asking the server, so holding an arrow key
