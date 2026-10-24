@@ -96,9 +96,13 @@ type TraceResult = {
 ## Explanation API rules
 - Provider: Gemini through the official `@google/genai` SDK (Interactions
   API), key `GEMINI_API_KEY` in the server environment only. Always send
-  `store: false` so student code is not kept on Google's side.
-  - `/api/explain`: `gemini-3.5-flash-lite`, 5 s, one or two sentences per step.
-  - `/api/help`: `gemini-3.8-flash`, 12 s, three levels for a wrong solution
+  `store: false` so student code is not kept on Google's side, and
+  `retries: { strategy: "none" }` (SDK retries ignore our deadline; one call
+  ran for 165 s). Live checks: `api/live.check.mjs`, opt-in, never in
+  pre-commit (they use quota).
+  - `/api/explain`: `gemini-3.6-flash`, minimal thinking, 5 s, one or two
+    sentences per step.
+  - `/api/help`: `gemini-3.6-flash`, low thinking, 12 s, three levels for a wrong solution
     (1 hint, no code; 2 what went wrong, no code; 3 a small fix to the
     student's own code, never a whole solution). Replies are rejected (and
     the built-in template is used) if levels 1-2 contain code, if any number
