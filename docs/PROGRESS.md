@@ -162,6 +162,7 @@ Decisions (2026-10-24):
 | 14 | Side-by-side workspace, syntax colors, new palette and fonts | done |
 | 15 | Code Visualizer mode (focused debugger view) | done |
 | 16 | Your feedback, then a full UX review | done |
+| 17 | Problem catalog: 25 problems in 8 pattern groups (spec `problem-catalog`) | done |
 
 ### Stage 7: Claude → Gemini
 - **Docs checked first:** Google's quickstart, text generation and models pages,
@@ -700,7 +701,6 @@ Checked in the browser:
   were restored from history; a button with nowhere to go stays focusable and
   says so.
 
-| 17 | Problem catalog: 25 problems in 8 pattern groups (spec `problem-catalog`) | done |
 
 ### Stage 17: problem catalog, spec first, tests first
 - **Spec:** `.kiro/specs/problem-catalog/` (requirements in WHEN/SHALL form,
