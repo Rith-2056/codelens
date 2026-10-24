@@ -27,7 +27,7 @@ pre-commit hook enforces it).
 | 1 | Branch `codelens-stages`, TDD tooling, commit wave 3 | done |
 | 2 | Graph and tree visualizers | done |
 | 3 | Acceptance and accessibility pass | done (real screen reader still to do) |
-| 4 | Fix the stale `StackFrame` comment in `trace.ts` | todo |
+| 4 | Fix the stale `StackFrame` comment in `trace.ts` | done |
 | 5 | Shrink the bundle | todo |
 | 6 | Live Claude API test | paused: needs your API key |
 
@@ -108,3 +108,16 @@ pre-commit hook enforces it).
   share link.
 - **Checks:** all green (189 pytest, 111 node tests, 37 vitest, typecheck,
   build).
+
+### Stage 4: stale `StackFrame` comment in the contract
+- **Test written first** (`tests/test_contract_docs.py`, 4 tests): the
+  contract blocks in `tech.md` and `plan.md` are identical; every type and
+  field in `trace.ts` appears in `tech.md`; `trace.ts` no longer says "A
+  calling frame", and its `stack` line says "all active user frames … current
+  frame"; both docs describe `stack` the same way.
+- **Red:** 1 failed (the stale comment), 3 passed (the docs already agreed).
+- **Fix:** comments only in `frontend/src/types/trace.ts`; no type changed.
+  The contract hook's fixture step (`gen_fixtures.py --all`) left every
+  fixture byte-identical.
+- **Checks:** all green (193 pytest, 111 node tests, 37 vitest, typecheck,
+  build). The new tests now guard the three contract copies against drift.

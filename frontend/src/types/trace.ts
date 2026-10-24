@@ -27,8 +27,9 @@ export type HeapObject = {
   fields: Record<string, JsonValue>;
 };
 
-// A calling frame. TraceStep.stack lists them outermost first; the current
-// frame's locals stay in TraceStep.locals.
+// One active user frame. TraceStep.stack lists every active frame, outermost
+// first; the last one is the current frame, whose locals equal
+// TraceStep.locals, so stack.length === depth + 1.
 export type StackFrame = {
   functionName: string;
   frameId: string;
@@ -48,7 +49,7 @@ export type TraceStep = {
   returnValue?: JsonValue;
   error?: { type: string; message: string };
   heap: Record<string, HeapObject>;
-  stack: StackFrame[]; // outermost first
+  stack: StackFrame[]; // all active user frames, outermost first; last = current frame
 };
 
 export type TraceResult = {
