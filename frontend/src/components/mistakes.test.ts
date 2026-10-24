@@ -21,6 +21,16 @@ describe("classifyMistake", () => {
     expect(classifyMistake(c({ slug: "maximum-depth-of-binary-tree", args: [[1]], got: 0, expected: 1 }))).toBe("off-by-one");
   });
 
+  it("Binary Search with while left < right (misses a one-number list): off-by-one", () => {
+    const code = "class Solution:\n    def search(self, nums, target):\n        left, right = 0, len(nums) - 1\n        while left < right:\n            mid = (left + right) // 2\n            if nums[mid] == target:\n                return mid\n            if nums[mid] < target:\n                left = mid + 1\n            else:\n                right = mid - 1\n        return -1\n";
+    expect(classifyMistake(c({ slug: "binary-search", args: [[-2], -2], got: -1, expected: 0, code }))).toBe("off-by-one");
+  });
+
+  it("Maximum Average Subarray skipping the last window: off-by-one", () => {
+    const code = "class Solution:\n    def findMaxAverage(self, nums, k):\n        total = sum(nums[:k])\n        best = total\n        for i in range(k, len(nums) - 1):\n            total += nums[i] - nums[i - k]\n            best = max(best, total)\n        return best / k\n";
+    expect(classifyMistake(c({ slug: "maximum-average-subarray-i", args: [[-1, 0], 1], got: -1.0, expected: 0.0, code }))).toBe("off-by-one");
+  });
+
   it("Two Sum using one element twice (returns [0, 0]): incorrect pointer variables", () => {
     expect(classifyMistake(c({ slug: "two-sum", args: [[0, 0], 0], got: [0, 0], expected: [0, 1] }))).toBe("pointer");
   });

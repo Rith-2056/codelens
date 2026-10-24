@@ -77,6 +77,32 @@ const texts: readonly ProblemText[] = [
     },
   },
   {
+    slug: "maximum-average-subarray-i",
+    number: 643,
+    title: "Maximum Average Subarray I",
+    difficulty: "Easy",
+    pattern: "Sliding window",
+    method: "findMaxAverage",
+    signature: "def findMaxAverage(self, nums: List[int], k: int) -> float:",
+    statement: {
+      en: "Given a list of integers nums and a whole number k, look at every run of k numbers that sit next to each other. Return the largest average among those runs.",
+      es: "Dada una lista de enteros nums y un número entero k, mira cada tramo de k números seguidos. Devuelve el mayor promedio entre esos tramos.",
+    },
+  },
+  {
+    slug: "binary-search",
+    number: 704,
+    title: "Binary Search",
+    difficulty: "Easy",
+    pattern: "Binary search",
+    method: "search",
+    signature: "def search(self, nums: List[int], target: int) -> int:",
+    statement: {
+      en: "Given a list of different integers nums sorted from smallest to largest, and a number target, return the position of target in nums, or -1 if it is not there. Each check should cut the part you still search in half.",
+      es: "Dada una lista de enteros distintos nums ordenada de menor a mayor y un número target, devuelve la posición de target en nums, o -1 si no está. Cada comprobación debe dividir a la mitad la parte en la que sigues buscando.",
+    },
+  },
+  {
     slug: "find-if-path-exists-in-graph",
     number: 1971,
     title: "Find if Path Exists in Graph",

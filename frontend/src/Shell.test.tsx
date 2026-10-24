@@ -49,7 +49,7 @@ describe("app shell", () => {
     await noAxeViolations();
   });
 
-  it("lists the six LeetCode problems with numbers, names and difficulty", async () => {
+  it("lists the eight LeetCode problems with numbers, names and difficulty", async () => {
     render(<App />);
     await go("Problems");
     expect(document.title).toBe("Problems · CodeLens");
@@ -59,9 +59,11 @@ describe("app shell", () => {
     expect(document.activeElement).toBe(heading); // focus moves to the new page
     const list = screen.getByRole("list", { name: "LeetCode problems" });
     const items = [...list.querySelectorAll(":scope > li")].map((li) => li.textContent ?? "");
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(8);
     expect(items[0]).toMatch(/1\. Two Sum.*Easy.*Hash map/);
     expect(items[2]).toMatch(/167\. Two Sum II - Input Array Is Sorted.*Medium/);
+    expect(items[3]).toMatch(/643\. Maximum Average Subarray I.*Easy.*Sliding window/);
+    expect(items[4]).toMatch(/704\. Binary Search.*Easy.*Binary search/);
     await noAxeViolations();
   });
 

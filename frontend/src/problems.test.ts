@@ -7,6 +7,8 @@ describe("the LeetCode problem set", () => {
       [1, "Two Sum", "two-sum", "Easy"],
       [217, "Contains Duplicate", "contains-duplicate", "Easy"],
       [167, "Two Sum II - Input Array Is Sorted", "two-sum-ii-input-array-is-sorted", "Medium"],
+      [643, "Maximum Average Subarray I", "maximum-average-subarray-i", "Easy"],
+      [704, "Binary Search", "binary-search", "Easy"],
       [1971, "Find if Path Exists in Graph", "find-if-path-exists-in-graph", "Easy"],
       [104, "Maximum Depth of Binary Tree", "maximum-depth-of-binary-tree", "Easy"],
       [70, "Climbing Stairs", "climbing-stairs", "Easy"],
@@ -15,7 +17,7 @@ describe("the LeetCode problem set", () => {
 
   it("gives each problem a LeetCode-style class Solution signature", () => {
     const methods = problems.map((p) => p.method);
-    expect(methods).toEqual(["twoSum", "containsDuplicate", "twoSum", "validPath", "maxDepth", "climbStairs"]);
+    expect(methods).toEqual(["twoSum", "containsDuplicate", "twoSum", "findMaxAverage", "search", "validPath", "maxDepth", "climbStairs"]);
     for (const p of problems) {
       expect(p.signature).toMatch(new RegExp(`^def ${p.method}\\(self, `));
       expect(p.signature.endsWith(":")).toBe(true);

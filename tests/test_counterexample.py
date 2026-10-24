@@ -14,6 +14,30 @@ STAIRS_OFF_BY_ONE = """class Solution:
         return ways[n]
 """
 
+BINARY_SEARCH_STRICT_LOOP = """class Solution:
+    def search(self, nums, target):
+        left, right = 0, len(nums) - 1
+        while left < right:
+            mid = (left + right) // 2
+            if nums[mid] == target:
+                return mid
+            if nums[mid] < target:
+                left = mid + 1
+            else:
+                right = mid - 1
+        return -1
+"""
+
+AVERAGE_MISSES_LAST_WINDOW = """class Solution:
+    def findMaxAverage(self, nums, k):
+        total = sum(nums[:k])
+        best = total
+        for i in range(k, len(nums) - 1):
+            total += nums[i] - nums[i - k]
+            best = max(best, total)
+        return best / k
+"""
+
 TWO_SUM_SAME_ELEMENT = """class Solution:
     def twoSum(self, nums, target):
         for i in range(len(nums)):
@@ -110,6 +134,8 @@ def test_every_candidate_input_is_valid_and_sorted_smallest_first(slug):
         ("contains-duplicate", DUPLICATE_ADJACENT_ONLY, lambda r: len(r["args"][0]) == 3 and r["expected"] is True),
         ("two-sum-ii-input-array-is-sorted", TWO_SUM_II_ZERO_BASED, lambda r: len(r["args"][0]) == 2),
         ("find-if-path-exists-in-graph", PATH_ONE_WAY_EDGES, lambda r: r["args"][0] == 2 and r["expected"] is True),
+        ("binary-search", BINARY_SEARCH_STRICT_LOOP, lambda r: len(r["args"][0]) == 1 and r["got"] == -1 and r["expected"] == 0),
+        ("maximum-average-subarray-i", AVERAGE_MISSES_LAST_WINDOW, lambda r: len(r["args"][0]) == 2 and r["args"][1] == 1),
         ("maximum-depth-of-binary-tree", DEPTH_COUNTS_EDGES, lambda r: r["args"] == [[1]] and r["got"] == 0),
     ],
 )

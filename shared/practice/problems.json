@@ -4,9 +4,9 @@
     "params": ["nums", "target"],
     "compare": "same-items",
     "examples": [
-      { "args": [[3, 8, 5, 1], 6], "expected": [2, 3] },
-      { "args": [[4, 4], 8], "expected": [0, 1] },
-      { "args": [[-2, 7, 11, 5], 9], "expected": [0, 2] }
+      {"args": [[3, 8, 5, 1], 6], "expected": [2, 3]},
+      {"args": [[4, 4], 8], "expected": [0, 1]},
+      {"args": [[-2, 7, 11, 5], 9], "expected": [0, 2]}
     ]
   },
   "contains-duplicate": {
@@ -14,9 +14,9 @@
     "params": ["nums"],
     "compare": "exact",
     "examples": [
-      { "args": [[5, 1, 8, 1, 3]], "expected": true },
-      { "args": [[2, 9, 4]], "expected": false },
-      { "args": [[7]], "expected": false }
+      {"args": [[5, 1, 8, 1, 3]], "expected": true},
+      {"args": [[2, 9, 4]], "expected": false},
+      {"args": [[7]], "expected": false}
     ]
   },
   "two-sum-ii-input-array-is-sorted": {
@@ -24,9 +24,29 @@
     "params": ["numbers", "target"],
     "compare": "exact",
     "examples": [
-      { "args": [[1, 3, 4, 6, 8, 11], 10], "expected": [3, 4] },
-      { "args": [[-3, 0, 2, 5], -1], "expected": [1, 3] },
-      { "args": [[1, 2], 3], "expected": [1, 2] }
+      {"args": [[1, 3, 4, 6, 8, 11], 10], "expected": [3, 4]},
+      {"args": [[-3, 0, 2, 5], -1], "expected": [1, 3]},
+      {"args": [[1, 2], 3], "expected": [1, 2]}
+    ]
+  },
+  "maximum-average-subarray-i": {
+    "method": "findMaxAverage",
+    "params": ["nums", "k"],
+    "compare": "close",
+    "examples": [
+      {"args": [[2, -4, 7, 1, 3, 5], 3], "expected": 3.6666666666666665},
+      {"args": [[4, 0, 6], 1], "expected": 6.0},
+      {"args": [[-2, -7, -1, -9], 2], "expected": -4.0}
+    ]
+  },
+  "binary-search": {
+    "method": "search",
+    "params": ["nums", "target"],
+    "compare": "exact",
+    "examples": [
+      {"args": [[-3, 0, 4, 7, 10, 15], 7], "expected": 3},
+      {"args": [[2, 5, 9], 4], "expected": -1},
+      {"args": [[6], 6], "expected": 0}
     ]
   },
   "find-if-path-exists-in-graph": {
@@ -34,9 +54,9 @@
     "params": ["n", "edges", "source", "destination"],
     "compare": "exact",
     "examples": [
-      { "args": [5, [[0, 1], [1, 2], [3, 4]], 0, 2], "expected": true },
-      { "args": [5, [[0, 1], [1, 2], [3, 4]], 0, 4], "expected": false },
-      { "args": [1, [], 0, 0], "expected": true }
+      {"args": [5, [[0, 1], [1, 2], [3, 4]], 0, 2], "expected": true},
+      {"args": [5, [[0, 1], [1, 2], [3, 4]], 0, 4], "expected": false},
+      {"args": [1, [], 0, 0], "expected": true}
     ]
   },
   "maximum-depth-of-binary-tree": {
@@ -45,9 +65,9 @@
     "tree_params": ["root"],
     "compare": "exact",
     "examples": [
-      { "args": [[1, 2, 3, 4, null, null, 5, null, null, 6]], "expected": 4 },
-      { "args": [[7]], "expected": 1 },
-      { "args": [[]], "expected": 0 }
+      {"args": [[1, 2, 3, 4, null, null, 5, null, null, 6]], "expected": 4},
+      {"args": [[7]], "expected": 1},
+      {"args": [[]], "expected": 0}
     ]
   },
   "climbing-stairs": {
@@ -55,9 +75,9 @@
     "params": ["n"],
     "compare": "exact",
     "examples": [
-      { "args": [6], "expected": 13 },
-      { "args": [1], "expected": 1 },
-      { "args": [4], "expected": 5 }
+      {"args": [6], "expected": 13},
+      {"args": [1], "expected": 1},
+      {"args": [4], "expected": 5}
     ]
   }
 }

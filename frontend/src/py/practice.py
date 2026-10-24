@@ -233,6 +233,9 @@ def same_answer(slug: str, got, expected) -> bool:
         return False
     if rule == "same-items" and g[0] == "list" and e[0] == "list":
         return sorted(g[1]) == sorted(e[1])
+    if rule == "close":  # averages: within 1e-5, as LeetCode accepts
+        numbers = ("int", "float")
+        return g[0] in numbers and e[0] in numbers and abs(g[1] - e[1]) <= 1e-5
     return g == e
 
 
@@ -261,6 +264,8 @@ _SIZE = {
     "two-sum": lambda a: (len(a[0]), _abs_sum(a[0]), abs(a[1])),
     "contains-duplicate": lambda a: (len(a[0]), _abs_sum(a[0])),
     "two-sum-ii-input-array-is-sorted": lambda a: (len(a[0]), _abs_sum(a[0]), abs(a[1])),
+    "maximum-average-subarray-i": lambda a: (len(a[0]), _abs_sum(a[0]), a[1]),
+    "binary-search": lambda a: (len(a[0]), _abs_sum(a[0]), abs(a[1])),
     "find-if-path-exists-in-graph": lambda a: (a[0] + len(a[1]), len(a[1]), a[2], a[3]),
     "maximum-depth-of-binary-tree": lambda a: (_tree_nodes(a[0]), len(a[0])),
     "climbing-stairs": lambda a: (a[0],),
@@ -306,6 +311,23 @@ def _gen_two_sum_ii():
     for length in (2, 3, 4):
         for nums in itertools.combinations_with_replacement(range(-2, 4), length):
             for target in _unique_pair_targets(nums, _pairs):
+                yield [list(nums), target]
+
+
+def _gen_max_average():
+    for length in (1, 2, 3, 4):
+        for n, nums in enumerate(itertools.product(range(-1, 3), repeat=length)):
+            if length == 4 and n % 11:  # sample the larger arrays
+                continue
+            for k in range(1, length + 1):
+                yield [list(nums), k]
+
+
+def _gen_binary_search():
+    # Sorted, distinct values (LeetCode's rule); targets inside and outside.
+    for length in (1, 2, 3, 4):
+        for nums in itertools.combinations(range(-2, 3), length):
+            for target in range(nums[0] - 1, nums[-1] + 2):
                 yield [list(nums), target]
 
 
@@ -365,6 +387,8 @@ _GENERATORS = {
     "two-sum": _gen_two_sum,
     "contains-duplicate": _gen_contains_duplicate,
     "two-sum-ii-input-array-is-sorted": _gen_two_sum_ii,
+    "maximum-average-subarray-i": _gen_max_average,
+    "binary-search": _gen_binary_search,
     "find-if-path-exists-in-graph": _gen_valid_path,
     "maximum-depth-of-binary-tree": _gen_max_depth,
     "climbing-stairs": _gen_climbing_stairs,

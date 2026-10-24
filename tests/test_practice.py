@@ -23,13 +23,15 @@ SLUGS = [
     "two-sum",
     "contains-duplicate",
     "two-sum-ii-input-array-is-sorted",
+    "maximum-average-subarray-i",
+    "binary-search",
     "find-if-path-exists-in-graph",
     "maximum-depth-of-binary-tree",
     "climbing-stairs",
 ]
 
 
-def test_problem_data_covers_the_six_problems_in_order():
+def test_problem_data_covers_the_eight_problems_in_order():
     problems = practice.load_problems()
     assert list(problems) == SLUGS
     for slug, p in problems.items():
@@ -136,6 +138,13 @@ def test_answer_comparison_rules():
     assert practice.same_answer("contains-duplicate", True, True)
     assert not practice.same_answer("contains-duplicate", 1, True)  # must be a real bool
     assert not practice.same_answer("climbing-stairs", 13.0, 13)  # must be an int
+    # Averages: like LeetCode, any answer within 1e-5 is accepted (ints too).
+    assert practice.same_answer("maximum-average-subarray-i", 11 / 3, 3.6666666666666665)
+    assert practice.same_answer("maximum-average-subarray-i", 3.666669, 11 / 3)
+    assert not practice.same_answer("maximum-average-subarray-i", 3.6667, 11 / 3)
+    assert practice.same_answer("maximum-average-subarray-i", 6, 6.0)
+    assert not practice.same_answer("maximum-average-subarray-i", True, 1.0)  # a bool is not a number here
+    assert not practice.same_answer("maximum-average-subarray-i", [6.0], 6.0)
 
 
 def test_reference_fixtures_match_fresh_traces():

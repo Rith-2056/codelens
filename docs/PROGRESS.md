@@ -160,6 +160,7 @@ Decisions (2026-10-24):
 | 12 | Mistake categories and saved sessions | done |
 | 13 | Live Gemini test | done |
 | 14 | Side-by-side workspace, syntax colors, new palette and fonts | done |
+| 15 | Code Visualizer mode (focused debugger view) | in progress |
 
 ### Stage 7: Claude → Gemini
 - **Docs checked first:** Google's quickstart, text generation and models pages,
@@ -540,3 +541,18 @@ then green):
   scroll. Run, stepping, the correct-solution switch and the arrow keys
   work. The problem statement panel scrolls when the statement is long.
 - **Checks:** all green.
+
+### Stage 15: Code Visualizer mode
+Your answers: add two problems so the sliding-window and binary-search views
+have something to show, and make the workspace's Step through panel compact.
+
+**15a: two new problems, tests first.** These are 643. Maximum Average
+Subarray I (sliding window) and 704. Binary Search, with our own statements
+in English and Spanish, our own examples, and reference solutions. Each has a
+counterexample generator (324 and 158 small valid inputs). A new comparison
+rule, `close`, accepts averages within 1e-5, as LeetCode does; bools and lists
+are rejected. Tests plant real bugs: `while left < right` is caught on a
+one-number list, and a loop that skips the last window is caught on
+`[[-1, 0], 1]`. Both bugs are classed as off-by-one. A first version had
+2,930 average inputs and timed out once under load, so I cut the generators
+down.
