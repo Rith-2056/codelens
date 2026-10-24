@@ -14,7 +14,7 @@ import Variables from "./components/Variables";
 import { canVisualize, initialRunState, runReducer, traceOf } from "./components/runState";
 import { variableNames } from "./components/jump";
 import { previousInFrame } from "./components/stepInfo";
-import { structuresFor, topStructureChange } from "./components/structures";
+import { framesOf, structuresFor, topStructureChange } from "./components/structures";
 import { explainStep, type Lang } from "./explain";
 import { lessonById, lessons, type LessonId } from "./lessons";
 import { onTracerStatus, preloadTracer, runTrace } from "./worker/traceClient";
@@ -217,7 +217,7 @@ export default function App() {
             <>
               <p className="hint">Values right now, before the highlighted line runs.</p>
               <Variables current={step.locals} previous={prevStep?.locals} heap={heap} prevHeap={prevStep?.heap ?? {}} />
-              <DataStructures items={structures} locals={step.locals} heap={heap} line={lineText} />
+              <DataStructures items={structures} locals={step.locals} heap={heap} line={lineText} frames={framesOf(step)} />
               <CallStack step={step} />
 
               <h3 className="subheading">Output so far</h3>

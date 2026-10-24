@@ -1,6 +1,8 @@
-import type { HeapObject, JsonValue } from "../types/trace";
+import type { HeapObject, JsonValue, StackFrame } from "../types/trace";
 import { dictEntries, itemsOf, resolveRef, sameValue, type Change } from "../explain/snapshot";
 import Arrays from "./Arrays";
+import { GraphView, TreeView } from "./GraphTreeViews";
+import { graphOf, isTreeNodeRef, treeBadges, treesIn } from "./graphTree";
 import type { StructureItem } from "./structures";
 import { formatValue, kindLabel, objectShort, plural, type Heap } from "./values";
 
@@ -11,24 +13,41 @@ type Props = {
   locals: Record<string, JsonValue>;
   heap: Heap;
   line: string; // the highlighted line's code
+  /** Every active frame, outermost first (current last); used to draw trees and their badges. */
+  frames?: StackFrame[];
 };
 
 // The Data structures panel: one visualizer per local whose value is a list,
 // 2D list, dict, set, deque, or object, chosen from the value's shape. Every
 // change is marked with text ("added", "removed", old → new, "front", "back").
-export default function DataStructures({ items, locals, heap, line }: Props) {
-  if (items.length === 0) return null;
+// An adjacency dict is drawn as a graph; TreeNode-like objects are drawn as one
+// tree per distinct root, found across all frames so recursion shows the whole
+// tree with each call's variable marked on its node.
+export default function DataStructures({ items, locals, heap, line, frames = [] }: Props) {
+  const trees = treesIn(frames, heap);
+  const shown = trees.length ? items.filter((it) => !(it.view === "ref" && isTreeNodeRef(it.value, heap))) : items;
+  if (shown.length === 0 && trees.length === 0) return null;
+  const badges = trees.length ? treeBadges(frames, heap) : new Map<string, string[]>();
   return (
     <section className="ds" aria-labelledby="ds-heading">
       <h3 className="subheading" id="ds-heading">
         Data structures
       </h3>
       <ul className="ds-list">
-        {items.map((item) => (
+        {trees.map((t) => (
+          <li key={`tree-${t.root.id}`} className="ds-card">
+            <p className="ds-title">
+              <code className="ds-name">{t.name}</code>
+              <span className="ds-kind">tree{t.where !== "main program" || frames.length > 1 ? `, from ${t.where}` : ""}</span>
+            </p>
+            <TreeView name={t.name} where={t.where} root={t.root} badges={badges} />
+          </li>
+        ))}
+        {shown.map((item) => (
           <li key={item.name} className="ds-card">
             <p className="ds-title">
               <code className="ds-name">{item.name}</code>
-              <span className="ds-kind">{kindLabel(item.value)}</span>
+              <span className="ds-kind">{item.view === "dict" && graphOf(item.value) ? "graph (adjacency dict)" : kindLabel(item.value)}</span>
               {item.isNew && <span className="marker marker-new">new</span>}
               {item.replaced && <span className="marker marker-changed">new value</span>}
             </p>
@@ -47,8 +66,11 @@ function Body({ item, locals, heap, line }: { item: StructureItem; locals: Recor
       return <Arrays name={name} items={value as JsonValue[]} locals={locals} changes={changes} heap={heap} line={line} />;
     case "grid":
       return <Grid name={name} rows={value as JsonValue[][]} changes={changes} heap={heap} />;
-    case "dict":
+    case "dict": {
+      const graph = graphOf(value);
+      if (graph) return <GraphView name={name} graph={graph} value={value} locals={locals} />;
       return <HashMap name={name} value={value} changes={changes} heap={heap} />;
+    }
     case "set":
       return <SetChips name={name} items={itemsOf(value)} changes={changes} heap={heap} />;
     case "deque":

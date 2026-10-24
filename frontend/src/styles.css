@@ -751,6 +751,70 @@ code {
   font-weight: 700;
 }
 
+/* Graph and tree views: an SVG picture plus a text version underneath. */
+.viz {
+  margin: 0;
+}
+
+.viz-svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.viz-graph {
+  width: 340px;
+}
+
+.viz-edge {
+  stroke: var(--fg);
+  stroke-width: 1.5;
+}
+
+.viz-arrow {
+  fill: var(--fg);
+}
+
+.viz-node {
+  fill: var(--panel);
+  stroke: var(--fg);
+  stroke-width: 2;
+}
+
+.viz-node-marked {
+  fill: var(--new-bg);
+  stroke-width: 3;
+}
+
+.viz-label {
+  fill: var(--fg);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.viz-badge {
+  fill: var(--fg);
+  font-family: var(--sans);
+  font-size: 10px;
+  /* A halo in the panel color keeps badge text readable where it crosses a line. */
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.viz-text {
+  margin: 8px 0 0;
+  padding-left: 1.2rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.viz-tree-text ul {
+  padding-left: 1.2rem;
+}
+
 .ds-kind {
   color: var(--muted);
   font-size: 0.9rem;

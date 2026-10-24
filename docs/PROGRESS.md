@@ -25,7 +25,7 @@ pre-commit hook enforces it).
 | Stage | Goal | Status |
 |---|---|---|
 | 1 | Branch `codelens-stages`, TDD tooling, commit wave 3 | done |
-| 2 | Graph and tree visualizers | todo |
+| 2 | Graph and tree visualizers | done |
 | 3 | Acceptance and accessibility pass | todo |
 | 4 | Fix the stale `StackFrame` comment in `trace.ts` | todo |
 | 5 | Shrink the bundle | todo |
@@ -43,3 +43,31 @@ pre-commit hook enforces it).
 - **Hook test:** a deliberately failing test made the hook exit 1 with "commit
   blocked"; the probe was then removed.
 - **Checks:** all green (189 pytest, 111 node tests, typecheck, build).
+
+### Stage 2: graph and tree visualizers
+- **Test tools added** (frontend dev dependencies, pinned): vitest 3.2.7,
+  jsdom 30.1.3, Testing Library (react 16.3.3, dom 10.4.2), axe-core 4.14.0.
+  `npm test` runs vitest; `scripts/check-all.sh` now includes it.
+- **Tests written first** (`graphTree.test.ts`, `DataStructures.test.tsx`), run
+  red, then made green:
+  - graph detection from the BFS adjacency dict (5 nodes, 5 undirected links),
+    directed links, set neighbors, and every "not a graph" case (the `hops`
+    dict, unknown neighbors, nested lists, placeholders)
+  - node badges in text: "in visited", "in queue", "← person"
+  - circle layout; tree detection, cycles and mixed types refused
+  - the whole tree from the outermost `root` during recursion, with each
+    call's `node` marked and exactly one "(running)"
+  - in-order tree layout; one tree card per distinct root
+  - components: graph and tree drawn as SVG with a summary label and a text
+    version; hops stays a key → value table; the card says "graph"; badges are
+    not cut off; no axe violations
+- **Test fix, stated:** the tree test first picked the deepest recursion step,
+  whose `node` is `None` (the base case), so nothing could be "running". It now
+  picks the deepest step whose `node` is a real node.
+- **Bug found by testing:** `GraphTree.tsx` and `graphTree.ts` clash on macOS's
+  case-insensitive disk; the views file is now `GraphTreeViews.tsx`.
+- **Browser check:** BFS graph with visited / queue / person badges; tree with
+  `root` and each `node` marked; no horizontal scroll at 406 px. Badge text got
+  a halo so it stays readable over lines (CSS only, no test).
+- **Checks:** all green (189 pytest, 111 node tests, 23 vitest, typecheck,
+  build).

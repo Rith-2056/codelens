@@ -53,11 +53,12 @@
   - Text change markers come from `diffValue`. Detection rules get `node --test` coverage.
   - _Requirements: 6.1–6.3, 7.1–7.3_
 
-- [ ] 7. Graph and tree visualizers (ui-builder)
+- [x] 7. Graph and tree visualizers (ui-builder)
   - Build Graph (adjacency `__dict`, circular layout, visited / in queue / current badges) and Tree (heap objects with `left`/`right`, layered layout, badges for nodes referenced by the current locals or the stack). Each has a text alternative.
   - The narrator adds the step's top structure change. Respect `prefers-reduced-motion`.
   - _Requirements: 6.1–6.3, 7.1–7.3_
   - Note (ui-builder, wave 3): partly done. The narrator speaks the top structure change (via the explanation template, with a UI fallback), and `prefers-reduced-motion` turns off any transition. Graph and Tree are not built: the BFS graph shows as a hash map and tree nodes use the object fallback card.
+  - Done in TDD stage 2: `graphTree.ts` (logic) and `GraphTreeViews.tsx` (SVG + text version), wired into the Data structures panel. 23 vitest tests, including axe checks.
 
 - [ ] 8. Acceptance, accessibility, and performance pass (all)
   - In the browser, run the Level 2 acceptance tests in `docs/plan.md`, plus `while True: pass` → limit under 2 s at MAX_STEPS = 2000 in Pyodide.
