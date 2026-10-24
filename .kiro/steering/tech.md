@@ -100,8 +100,9 @@ type TraceResult = {
   `retries: { strategy: "none" }` (SDK retries ignore our deadline; one call
   ran for 165 s). Live checks: `api/live.check.mjs`, opt-in, never in
   pre-commit (they use quota).
-  - `/api/explain`: `gemini-3.6-flash`, minimal thinking, 5 s, one or two
-    sentences per step.
+  - `/api/explain`: `gemini-3.1-flash-lite`, minimal thinking, 5 s, one or
+    two sentences per step. A lite model because it is the most frequent call
+    and has its own free-tier quota.
   - `/api/help`: `gemini-3.6-flash`, low thinking, 12 s, three levels for a wrong solution
     (1 hint, no code; 2 what went wrong, no code; 3 a small fix to the
     student's own code, never a whole solution). Replies are rejected (and

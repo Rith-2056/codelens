@@ -365,9 +365,11 @@ test("the system prompt is static and states the rules", () => {
 
 test("the Gemini request: fast model, system instruction, small output, and nothing stored", () => {
   const body = buildRequest({ system: "S", user: "U" });
-  // gemini-3.5-flash-lite measured 0.9-5.9 s live (often over the 5 s budget);
-  // gemini-3.6-flash with minimal thinking measured 1.1-1.4 s.
-  assert.equal(MODEL, "gemini-3.6-flash");
+  // Per-step explanations are the most frequent call, so they use a lite model
+  // with its own free-tier quota (gemini-3.6-flash allows only 20 requests a
+  // day). gemini-3.1-flash-lite answered in 1.1 s live; 3.5-flash-lite was
+  // often over the 5 s budget. The help levels keep gemini-3.6-flash.
+  assert.equal(MODEL, "gemini-3.1-flash-lite");
   assert.equal(body.model, MODEL);
   assert.equal(body.system_instruction, "S");
   assert.equal(body.input, "U");

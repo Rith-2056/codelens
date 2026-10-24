@@ -158,7 +158,7 @@ Decisions (2026-10-24):
 | 10 | Counterexample search in Pyodide | done |
 | 11 | Three-level AI help (hint, explanation, possible fix) | done (live Gemini wording checked in stage 13) |
 | 12 | Mistake categories and saved sessions | done |
-| 13 | Live Gemini test | done; model plan for the free tier needs your decision |
+| 13 | Live Gemini test | done |
 
 ### Stage 7: Claude → Gemini
 - **Docs checked first:** Google's quickstart, text generation and models pages,
@@ -489,3 +489,14 @@ browser bundle. Recommendation: rotate it, since it was pasted into chat.
   bundle. Verified in the browser: requests reach the handlers (200), but the
   answers were the built-in text because of the quota.
 - **Checks:** all green (pre-commit suite; the live checks run separately).
+
+#### Stage 13 follow-up: models split for the free tier (your decision)
+- Per-step explanations now use `gemini-3.1-flash-lite`, which has its own
+  free-tier quota. The three help levels keep `gemini-3.6-flash` (20 free
+  requests a day; help is asked for far less often than step explanations).
+- Test first: the model test was changed and failed (red), then `MODEL` was
+  switched (green, 45 API tests).
+- Live (explain checks only, so no 3.6-flash quota was spent): the model
+  answered in 1.1 s and `/api/explain` in 1.8 s with tutor text ("The total
+  variable has been updated to 3 because we added the first number from the
+  list...").

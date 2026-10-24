@@ -32,9 +32,10 @@ export const LLM_TIMEOUT_MS = 5_000;
 /** Longest LLM reply accepted (templates stay well under this). */
 export const MAX_REPLY_CHARS = 400;
 
-/** The whole call must fit in LLM_TIMEOUT_MS. Measured live: gemini-3.6-flash
- *  with minimal thinking 1.1-1.4 s; gemini-3.5-flash-lite 0.9-5.9 s. */
-export const MODEL = "gemini-3.6-flash";
+/** The whole call must fit in LLM_TIMEOUT_MS. Measured live: gemini-3.1-flash-lite
+ *  1.1 s; gemini-3.5-flash-lite 0.9-5.9 s. A lite model because this is the most
+ *  frequent call and gemini-3.6-flash (kept for help) allows only 20 free requests a day. */
+export const MODEL = "gemini-3.1-flash-lite";
 /** The reply is one or two sentences. */
 export const MAX_OUTPUT_TOKENS = 512;
 /** The model may answer this instead of an explanation; we then use the template. */
