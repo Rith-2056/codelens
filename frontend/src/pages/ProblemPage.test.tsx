@@ -27,6 +27,11 @@ vi.mock("../worker/traceClient", () => ({
   findCounterexample: (slug: string, source: string) => findCounterexample(slug, source),
 }));
 
+const fetchHelp = vi.fn<(r: Record<string, unknown>) => Promise<{ text: string; source: "llm" | "template"; level: number }>>();
+vi.mock("../explain/help", () => ({
+  fetchHelp: (r: Record<string, unknown>) => fetchHelp(r),
+}));
+
 import ProblemPage from "./ProblemPage";
 
 const twoSum = problemBySlug("two-sum")!;
@@ -35,6 +40,12 @@ beforeEach(() => {
   tracePractice.mockReset();
   checkPractice.mockReset();
   findCounterexample.mockReset();
+  fetchHelp.mockReset();
+  fetchHelp.mockImplementation(async (r) => ({
+    text: r.level === 3 ? "Start j after i:\n```python\nfor j in range(i + 1, len(nums)):\n```" : `Help at level ${String(r.level)}.`,
+    source: "llm",
+    level: r.level as number,
+  }));
   vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
   // The student's run reuses the reference fixture's trace shape.
   tracePractice.mockImplementation(async () => fixture);
@@ -245,6 +256,102 @@ describe("problem page", () => {
       render(<ProblemPage problem={twoSum} />);
       await submit();
       expect(screen.getByRole("status", { name: "Result" }).textContent).toMatch(/took too long/i);
+    });
+  });
+
+  describe("three levels of help after a wrong answer", () => {
+    async function runWrong() {
+      checkPractice.mockResolvedValue({ correct: false, got: [0, 0], expected: [2, 3], error: null });
+      render(<ProblemPage problem={twoSum} />);
+      await run();
+    }
+    const help = () => screen.getByRole("region", { name: "Stuck? Get help" });
+
+    it("offers a gentle hint first and asks the tutor with the failing input and both answers", async () => {
+      await runWrong();
+      expect(within(help()).queryByRole("button", { name: /explain what went wrong/i })).toBeNull();
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Show a gentle hint" }));
+      });
+      expect(fetchHelp).toHaveBeenCalledWith({
+        level: 1,
+        lang: "en",
+        problem: { title: "Two Sum", statement: twoSum.statement.en, signature: twoSum.signature },
+        code: editor().value,
+        input: "nums = [3, 8, 5, 1], target = 6",
+        got: "[0, 0]",
+        expected: "[2, 3]",
+        error: null,
+      });
+      expect(within(help()).getByText("Help at level 1.")).toBeTruthy();
+    });
+
+    it("unlocks the explanation, then the possible fix, one level at a time", async () => {
+      await runWrong();
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Show a gentle hint" }));
+      });
+      expect(within(help()).queryByRole("button", { name: "Show a possible fix" })).toBeNull();
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Explain what went wrong" }));
+      });
+      expect(within(help()).getByText("Help at level 2.")).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Show a possible fix" }));
+      });
+      const code = help().querySelector("pre code");
+      expect(code?.textContent).toBe("for j in range(i + 1, len(nums)):");
+      expect(fetchHelp.mock.calls.map((c) => c[0].level)).toEqual([1, 2, 3]);
+    });
+
+    it("says where the help came from", async () => {
+      await runWrong();
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Show a gentle hint" }));
+      });
+      expect(help().textContent).toMatch(/AI tutor/);
+    });
+
+    it("asks in Spanish with the Spanish statement when the page is in Spanish", async () => {
+      await runWrong();
+      fireEvent.click(screen.getByRole("button", { name: "Español" }));
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Show a gentle hint" }));
+      });
+      const req = fetchHelp.mock.calls[0]![0];
+      expect(req.lang).toBe("es");
+      expect((req.problem as { statement: string }).statement).toBe(twoSum.statement.es);
+    });
+
+    it("is not offered when the answer is correct, and resets when the code changes", async () => {
+      render(<ProblemPage problem={twoSum} />);
+      await run();
+      expect(screen.queryByRole("region", { name: "Stuck? Get help" })).toBeNull();
+      cleanup();
+      await runWrong();
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Show a gentle hint" }));
+      });
+      fireEvent.change(editor(), { target: { value: editor().value + "\n# try again\n" } });
+      expect(screen.queryByRole("region", { name: "Stuck? Get help" })).toBeNull();
+    });
+
+    it("uses the failing input Submit found, including crashes", async () => {
+      findCounterexample.mockResolvedValue({ found: true, args: [[0, 1], 1], got: null, expected: [0, 1], error: { type: "IndexError", message: "list index out of range" }, tried: 1 });
+      render(<ProblemPage problem={twoSum} />);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+      });
+      await screen.findByRole("status", { name: "Result" });
+      await act(async () => {
+        fireEvent.click(within(help()).getByRole("button", { name: "Show a gentle hint" }));
+      });
+      expect(fetchHelp.mock.calls[0]![0]).toMatchObject({
+        input: "nums = [0, 1], target = 1",
+        got: null,
+        expected: "[0, 1]",
+        error: { type: "IndexError", message: "list index out of range" },
+      });
     });
   });
 });

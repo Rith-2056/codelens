@@ -95,9 +95,15 @@ type TraceResult = {
 
 ## Explanation API rules
 - Provider: Gemini through the official `@google/genai` SDK (Interactions
-  API), model `gemini-3.5-flash-lite`, key `GEMINI_API_KEY` in the server
-  environment only. Always send `store: false` so student code is not kept on
-  Google's side.
+  API), key `GEMINI_API_KEY` in the server environment only. Always send
+  `store: false` so student code is not kept on Google's side.
+  - `/api/explain`: `gemini-3.5-flash-lite`, 5 s, one or two sentences per step.
+  - `/api/help`: `gemini-3.8-flash`, 12 s, three levels for a wrong solution
+    (1 hint, no code; 2 what went wrong, no code; 3 a small fix to the
+    student's own code, never a whole solution). Replies are rejected (and
+    the built-in template is used) if levels 1-2 contain code, if any number
+    is not in the code, input, answers, error or line numbers, or if they are
+    too long.
 - LLM prompt: patient beginner tutor, one or two sentences, requested language,
   only values present in the snapshots, never future values, say the
   highlighted line has not run yet, decline unrelated requests.

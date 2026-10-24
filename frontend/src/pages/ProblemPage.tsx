@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import type { JsonValue, TraceResult } from "../types/trace";
 import type { Lang } from "../explain";
 import Editor from "../components/Editor";
+import HelpPanel from "../components/HelpPanel";
 import StepViewer from "../components/StepViewer";
 import {
   counterexampleMessage,
   formatInput,
   passedMessage,
   resultMessage,
+  type CheckResult,
   type Message,
 } from "../components/practiceView";
+import { formatValue } from "../components/values";
 import { scrollBox } from "../components/scrollBox";
 import type { Problem } from "../problems";
 import { checkPractice, findCounterexample, preloadTracer, tracePractice } from "../worker/traceClient";
@@ -52,6 +55,8 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   const [running, setRunning] = useState(false);
   const [mine, setMine] = useState<Run | null>(null);
   const [message, setMessage] = useState<Message | null>(null);
+  /** The input that went wrong and what happened on it: what the help is about. */
+  const [failure, setFailure] = useState<{ args: JsonValue[]; check: CheckResult; id: number } | null>(null);
   const [showRef, setShowRef] = useState(false);
   const [reference, setReference] = useState<Run | null>(null);
   const latest = useRef(0);
@@ -66,6 +71,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
     latest.current++;
     setMine(null);
     setMessage(null);
+    setFailure(null);
     setShowRef(false);
     setReference(null);
     setRunning(false);
@@ -77,6 +83,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
     setRunning(true);
     setShowRef(false);
     setReference(null);
+    setFailure(null);
     return ticket;
   }
 
@@ -97,6 +104,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
       const check = await checkPractice(problem.slug, code, args);
       if (ticket !== latest.current) return; // code or input changed meanwhile
       setMessage(resultMessage(check));
+      if (!check.correct) setFailure({ args, check, id: ticket });
       await traceMine(ticket, args);
     } catch (err) {
       failed(ticket, err);
@@ -115,6 +123,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
         setFailing(search.args);
         setSelected({ kind: "failing" });
         setMessage(counterexampleMessage(problem.params, { ...search, correct: false }));
+        setFailure({ args: search.args, check: { ...search, correct: false }, id: ticket });
         await traceMine(ticket, search.args);
         return;
       }
@@ -124,6 +133,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
       if (bad >= 0) {
         setSelected({ kind: "example", index: bad });
         setMessage(resultMessage(checks[bad]!));
+        setFailure({ args: problem.examples[bad]!.args, check: checks[bad]!, id: ticket });
         await traceMine(ticket, problem.examples[bad]!.args);
         return;
       }
@@ -243,6 +253,21 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
           )}
         </section>
       </div>
+
+      {failure && (
+        <HelpPanel
+          key={failure.id}
+          request={{
+            lang,
+            problem: { title: problem.title, statement: problem.statement[lang], signature: problem.signature },
+            code,
+            input: formatInput(problem.params, failure.args),
+            got: failure.check.error ? null : formatValue(failure.check.got),
+            expected: formatValue(failure.check.expected),
+            error: failure.check.error,
+          }}
+        />
+      )}
 
       {mine && (
         <div className={showRef ? "viewers viewers-two" : "viewers"}>

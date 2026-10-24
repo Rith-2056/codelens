@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Serverless /api/explain handler for CodeLens. Holds the only LLM call; the browser never sees the key.",
   "scripts": {
-    "test": "node --test explain.test.mjs ../frontend/src/explain/client.test.mjs",
+    "test": "node --test explain.test.mjs help.test.mjs ../frontend/src/explain/client.test.mjs ../frontend/src/explain/help.test.mjs",
     "typecheck": "../frontend/node_modules/.bin/tsc -p ."
   },
   "dependencies": {

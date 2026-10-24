@@ -1430,3 +1430,42 @@ a {
     border: 2px solid Highlight;
   }
 }
+
+/* Help panel: three levels, one at a time */
+.help {
+  margin-top: 16px;
+}
+
+.help-levels {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.help-level {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--cell-bg);
+}
+
+.help-text {
+  margin: 4px 0;
+}
+
+.help-code {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  overflow-x: auto;
+  font-size: 0.9rem;
+}
+
+.help-source {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}

@@ -85,12 +85,12 @@ export type LlmPrompt = { system: string; user: string };
 export type LlmReply = { text: string; finished: boolean };
 export type Complete = (prompt: LlmPrompt, signal: AbortSignal) => Promise<LlmReply>;
 
-type InteractionParams = {
+export type InteractionParams = {
   model: string;
   input: string;
   system_instruction: string;
   store: false;
-  generation_config: { max_output_tokens: number; thinking_level: "minimal" };
+  generation_config: { max_output_tokens: number; thinking_level: "minimal" | "low" };
 };
 type InteractionOptions = { timeout_ms: number; fetch_options: { signal: AbortSignal } };
 
@@ -113,10 +113,14 @@ export function buildRequest(prompt: LlmPrompt): InteractionParams {
   };
 }
 
-/** Wrap a Gemini client as a `Complete`. */
-export function geminiComplete(client: InteractionsClient, timeoutMs: number = LLM_TIMEOUT_MS): Complete {
+/** Wrap a Gemini client as a `Complete`. `build` makes the request (other endpoints use other models). */
+export function geminiComplete(
+  client: InteractionsClient,
+  timeoutMs: number = LLM_TIMEOUT_MS,
+  build: (prompt: LlmPrompt) => InteractionParams = buildRequest,
+): Complete {
   return async (prompt, signal) => {
-    const interaction = await client.interactions.create(buildRequest(prompt), {
+    const interaction = await client.interactions.create(build(prompt), {
       timeout_ms: timeoutMs,
       fetch_options: { signal },
     });
@@ -136,7 +140,8 @@ type Body = {
   stepIndex?: number;
 };
 
-function json(status: number, data: unknown): Response {
+/** A JSON response that is never cached. */
+export function json(status: number, data: unknown): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
@@ -205,7 +210,7 @@ function parseBody(raw: unknown): Body | string {
 }
 
 /** Read the body as text, stopping as soon as it exceeds `cap` bytes. */
-async function readCapped(request: Request, cap: number): Promise<string | null> {
+export async function readCapped(request: Request, cap: number): Promise<string | null> {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(declared) && declared > cap) return null;
   if (request.body === null) return "";
@@ -403,7 +408,8 @@ export function clientId(request: Request): string {
 // ---------------------------------------------------------------------------
 // Handler.
 
-function envApiKey(): string | undefined {
+/** GEMINI_API_KEY from the server environment, or undefined. */
+export function envApiKey(): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
   const key = env?.GEMINI_API_KEY;
   return key !== undefined && key.trim() !== "" ? key : undefined;
@@ -424,7 +430,7 @@ export type HandlerOptions = {
 };
 
 /** Run `complete` with a hard deadline, even if it ignores the abort signal. */
-async function withDeadline(complete: Complete, prompt: LlmPrompt, ms: number): Promise<LlmReply | null> {
+export async function withDeadline(complete: Complete, prompt: LlmPrompt, ms: number): Promise<LlmReply | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<null>((resolve) => {

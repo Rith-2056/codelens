@@ -156,7 +156,7 @@ Decisions (2026-10-24):
 | 8 | Pages and navigation, glassy iOS-style UI | done |
 | 9 | LeetCode problems with reference solutions | done |
 | 10 | Counterexample search in Pyodide | done |
-| 11 | Three-level AI help (hint, explanation, possible fix) | todo |
+| 11 | Three-level AI help (hint, explanation, possible fix) | done (live Gemini wording checked in stage 13) |
 | 12 | Mistake categories and saved sessions | todo |
 | 13 | Live Gemini test | paused: needs your Gemini key |
 
@@ -376,3 +376,33 @@ Decisions (2026-10-24):
   423 small inputs and 3 examples in 0.7 s.
 - **Checks:** all green (238 pytest, 111 node tests, 99 vitest, typecheck,
   build, bundle size, Pyodide check).
+
+### Stage 11: three levels of AI help
+- **Tests written first:**
+  - `frontend/src/explain/help.test.mjs` (8): offline templates for every level
+    in English and Spanish, crash and runaway wording, the number allow-list,
+    and a client that never rejects
+  - `api/help.test.mjs` (10, all with a fake Gemini):
+    - template when there's no key, and Gemini is then never called
+    - prompt contents; student text can't close the data tag
+    - levels 1-2 reject code, level 3 may show a small fix
+    - invented numbers are rejected; unfinished, too-long or `USE_TEMPLATE`
+      replies, errors and timeouts all fall back
+    - 405/413/400, 429 with the template; `store: false`; never logs
+  - `ProblemPage.test.tsx` (+6): help appears only after a wrong answer, one
+    level at a time (hint → what went wrong → possible fix); exact request
+    contents; Spanish; level 3 code renders as a code block; resets on edit;
+    uses Submit's failing input, including crashes
+- **Test fix, stated:** my "invented number" example used 7, but the sample
+  code has 7 lines, so 7 is a valid line number. It now uses 42.
+- **Code:**
+  - `frontend/src/explain/help.ts` (types, templates, allow-list, client)
+  - `api/help.ts` (Gemini `gemini-3.8-flash`, 12 s, reply checks)
+  - shared helpers exported from `api/explain.ts`
+  - `HelpPanel` on the problem page
+  - `check-all.sh` runs every `api/*.test.mjs`
+- **Real browser (offline AI):** an off-by-one Climbing Stairs is caught at
+  `n = 2`, and all three built-in help levels appear in order; axe finds 0
+  violations.
+- **Checks:** all green (238 pytest, 129 node tests, 105 vitest, typecheck,
+  build, bundle size).
