@@ -106,6 +106,66 @@ describe("problem page layout", () => {
   });
 });
 
+describe("Code Visualizer from the problem page", () => {
+  const openButton = () => screen.getByRole("button", { name: "Open Code Visualizer" });
+  const dialog = () => screen.queryByRole("dialog", { name: /Code Visualizer/ });
+
+  it("is offered before any run: it runs the chosen example first, then opens", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await act(async () => {
+      fireEvent.click(openButton());
+    });
+    expect(checkPractice).toHaveBeenCalledWith("two-sum", expect.any(String), [[3, 8, 5, 1], 6]);
+    expect(await screen.findByRole("dialog", { name: /Code Visualizer/ })).toBeTruthy();
+    expect(dialog()!.textContent).toMatch(/Two Sum · Your solution/);
+  });
+
+  it("Exit returns to the workspace at the same step, with focus back on the button", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    fireEvent.click(openButton());
+    fireEvent.click(within(dialog()!).getByRole("button", { name: "Next step" }));
+    fireEvent.click(within(dialog()!).getByRole("button", { name: "Next step" }));
+    fireEvent.click(within(dialog()!).getByRole("button", { name: "Exit visualizer" }));
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(openButton());
+    expect(stepOf(screen.getByRole("region", { name: "Your solution's run" }))).toBe(`Step 3 of ${fixture.trace.steps.length}`);
+  });
+
+  it("while it is open, the arrow keys step only once per press", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    fireEvent.click(openButton());
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    expect(within(dialog()!).getByRole("slider", { name: "Step" }).getAttribute("aria-valuetext")).toMatch(/^Step 2 of/);
+  });
+
+  it("shows the correct solution's run when that one is selected, with the switch inside", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /show the correct solution/i }));
+    });
+    await screen.findByRole("region", { name: "Correct solution's run" });
+    fireEvent.click(openButton());
+    expect(dialog()!.textContent).toMatch(/Two Sum · Correct solution/);
+    fireEvent.click(within(dialog()!).getByRole("button", { name: "Your solution" }));
+    expect(dialog()!.textContent).toMatch(/Two Sum · Your solution/);
+  });
+
+  it("the workspace's Step through panel stays compact: controls, the step's sentence and what changed", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    const panel = screen.getByRole("region", { name: "Step through" });
+    expect(within(panel).getByRole("group", { name: "Execution controls" })).toBeTruthy();
+    expect(within(panel).getByText("Nothing changed on this step.")).toBeTruthy(); // step 1: about to start
+    const seenAdded = fixture.trace.steps.findIndex((s, k) => k > 0 && "seen" in s.locals && !("seen" in fixture.trace.steps[k - 1]!.locals));
+    fireEvent.change(within(panel).getByRole("slider", { name: "Step" }), { target: { value: String(seenAdded) } });
+    expect(within(panel).getByRole("list", { name: "What changed" }).textContent).toMatch(/seen: new dict/);
+    expect(panel.querySelector("table.vars")).toBeNull(); // the details live in the visualizer
+  });
+});
+
 describe("problem page", () => {
   it("starts the editor with the class Solution stub", () => {
     render(<ProblemPage problem={twoSum} />);
@@ -208,7 +268,9 @@ describe("problem page", () => {
     const slider = within(mine).getByRole("slider");
     const inMethod = fixture.trace.steps.findIndex((s) => s.functionName === "twoSum" && "self" in s.locals);
     fireEvent.change(slider, { target: { value: String(inMethod) } });
-    const names = [...mine.querySelectorAll("table.vars tbody tr")].map((r) => r.querySelector("th, td")?.textContent?.trim());
+    fireEvent.click(screen.getByRole("button", { name: "Open Code Visualizer" }));
+    const dialog = screen.getByRole("dialog", { name: /Code Visualizer/ });
+    const names = [...dialog.querySelectorAll("table.vars th[scope='row']")].map((th) => th.textContent?.trim());
     expect(names).toContain("nums");
     expect(names).not.toContain("self");
   });

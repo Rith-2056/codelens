@@ -109,7 +109,7 @@ describe("app shell", () => {
     await go("Your code");
     expect(window.location.hash).toBe("#/playground");
     expect(document.title).toBe("Your code · CodeLens");
-    expect(screen.getByRole("button", { name: /visualize/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^visualize$/i })).toBeTruthy();
     expect(screen.getByRole("slider")).toBeTruthy();
   });
 });

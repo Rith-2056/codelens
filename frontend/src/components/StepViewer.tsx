@@ -1,19 +1,13 @@
 import { useMemo, useState } from "react";
 import type { TraceResult, TraceStep } from "../types/trace";
 import { explainStep, type Lang } from "../explain";
-import CallStack from "./CallStack";
-import { sourceLines } from "./CodeView";
-import DataStructures from "./DataStructures";
-import Explanation from "./Explanation";
-import JumpToChange from "./JumpToChange";
 import Narrator from "./Narrator";
-import Scrubber from "./Scrubber";
-import Timeline from "./Timeline";
-import Variables from "./Variables";
-import { variableNames } from "./jump";
 import { hideSolutionSelf } from "./practiceView";
 import { previousInFrame } from "./stepInfo";
-import { framesOf, structuresFor, topStructureChange } from "./structures";
+import { structuresFor, topStructureChange } from "./structures";
+import ControlBar from "../visualizer/ControlBar";
+import ChangeList from "../visualizer/ChangeList";
+import { stepChanges } from "../visualizer/focus";
 
 export type Stepper = {
   steps: TraceStep[];
@@ -49,24 +43,20 @@ type Props = {
   program: string;
   trace: TraceResult;
   lang: Lang;
-  /** Changes whenever a new trace is shown, so per-trace state resets. */
-  traceId: string;
   stepper: Stepper;
   /** Left/Right arrows step this run; only the run on screen listens. */
   active: boolean;
+  onOpenVisualizer: () => void;
 };
 
-// One run you can step through: controls, what is happening, data
-// structures, variables, call stack and output. The code with the next line
-// is shown by the page next to it (see ProblemPage).
-export default function StepViewer({ label, program, trace, lang, traceId, stepper, active }: Props) {
+// The workspace's compact Step through panel: the control bar with the
+// step's sentence, and what changed. Data structures and all variables are
+// in the Code Visualizer, one click away.
+export default function StepViewer({ label, program, trace, lang, stepper, active, onOpenVisualizer }: Props) {
   const { steps, i, step, scrubbing, goTo } = stepper;
   const prevStep = useMemo(() => previousInFrame(steps, i), [steps, i]);
   const structures = useMemo(() => (step ? structuresFor(step.locals, prevStep?.locals) : []), [step, prevStep]);
-  const names = useMemo(() => variableNames(steps), [steps]);
-  const heap = step?.heap ?? {};
-  const lineText = step ? (sourceLines(program)[step.line - 1] ?? "") : "";
-  const template = step ? explainStep(i > 0 ? steps[i - 1] : undefined, step, lang, program) : undefined;
+  const template = step ? explainStep(i > 0 ? steps[i - 1] : undefined, step, lang, program) : "";
 
   return (
     <section className="viewer" aria-label={`${label}'s run`}>
@@ -75,28 +65,28 @@ export default function StepViewer({ label, program, trace, lang, traceId, stepp
         <p className="empty">{trace.message ?? "This run recorded no steps."}</p>
       ) : (
         <>
-          <Timeline index={i} total={steps.length} onIndexChange={(n) => goTo(n)} globalKeys={active} />
-          <Scrubber index={i} total={steps.length} line={step.line} onScrub={(n) => goTo(n, true)} />
-          <JumpToChange key={traceId} steps={steps} index={i} names={names} onJump={(n) => goTo(n)} />
+          <ControlBar index={i} total={steps.length} line={step.line} description={template} onIndexChange={goTo} globalKeys={active} />
           {trace.message && <p className="hint">{trace.message}</p>}
-          <h4 className="subheading">What is happening</h4>
-          <Explanation steps={steps} index={i} lang={lang} code={program} codeHash={trace.codeHash} traceId={traceId} />
-          <DataStructures items={structures} locals={step.locals} heap={heap} line={lineText} frames={framesOf(step)} />
-          <h4 className="subheading">Variables</h4>
-          <Variables current={step.locals} previous={prevStep?.locals} heap={heap} prevHeap={prevStep?.heap ?? {}} />
-          <CallStack step={step} />
-          <h4 className="subheading">Output so far</h4>
-          {step.stdout ? <pre className="output">{step.stdout}</pre> : <p className="empty">Nothing printed yet.</p>}
-          <Narrator
-            source={program}
-            step={step}
-            index={i}
-            total={steps.length}
-            explanation={template}
-            lang={lang}
-            structureNote={topStructureChange(structures, heap)}
-            delayMs={scrubbing ? 600 : 0}
-          />
+          <h4 className="subheading">What changed</h4>
+          <ChangeList changes={stepChanges(step, prevStep)} />
+          <p className="hint viewer-more">
+            Lists, pointers, hash maps and every variable are drawn in the Code Visualizer.{" "}
+            <button type="button" className="link-button" onClick={onOpenVisualizer}>
+              Show details in the Code Visualizer
+            </button>
+          </p>
+          {active && (
+            <Narrator
+              source={program}
+              step={step}
+              index={i}
+              total={steps.length}
+              explanation={template}
+              lang={lang}
+              structureNote={topStructureChange(structures, step.heap ?? {})}
+              delayMs={scrubbing ? 600 : 0}
+            />
+          )}
         </>
       )}
     </section>

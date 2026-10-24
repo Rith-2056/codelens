@@ -5,6 +5,7 @@ import CodeView from "../components/CodeView";
 import Editor from "../components/Editor";
 import HelpPanel from "../components/HelpPanel";
 import StepViewer, { useStepper } from "../components/StepViewer";
+import CodeVisualizer from "../visualizer/CodeVisualizer";
 import {
   counterexampleMessage,
   formatInput,
@@ -78,6 +79,11 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   const mineStepper = useStepper(mine?.trace ?? null, mine?.id ?? null);
   const refStepper = useStepper(reference?.trace ?? null, reference?.id ?? null);
   const viewingRef = showRef && view === "ref";
+  /** The Code Visualizer is open (a full-screen view over this page). */
+  const [visualizing, setVisualizing] = useState(false);
+  const openWhenTraced = useRef(false);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const wasVisualizing = useRef(false);
 
   useEffect(() => {
     preloadTracer().catch(() => {});
@@ -92,10 +98,25 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
     }
   }, [showRef]);
 
+  // "Open Code Visualizer" before any run: it opens once the run is traced.
+  useEffect(() => {
+    if (mine && openWhenTraced.current) {
+      openWhenTraced.current = false;
+      setVisualizing(true);
+    }
+  }, [mine]);
+
+  // Back from the visualizer: focus returns to the button that opened it.
+  useEffect(() => {
+    if (wasVisualizing.current && !visualizing) openerRef.current?.focus();
+    wasVisualizing.current = visualizing;
+  }, [visualizing]);
+
   const args = selected.kind === "failing" && failing ? failing : problem.examples[selected.kind === "example" ? selected.index : 0]!.args;
 
   function clearRun() {
     latest.current++;
+    openWhenTraced.current = false;
     setMine(null);
     setMessage(null);
     setFailure(null);
@@ -118,6 +139,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
 
   function failed(ticket: number, err: unknown) {
     if (ticket !== latest.current) return;
+    openWhenTraced.current = false;
     setMessage({ tone: "error", text: `Python could not run your code (${err instanceof Error ? err.message : "unknown problem"}).` });
   }
 
@@ -206,6 +228,14 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
     }
   }
 
+  function openVisualizer() {
+    if (mine) setVisualizing(true);
+    else {
+      openWhenTraced.current = true;
+      void run();
+    }
+  }
+
   async function revealReference() {
     focusSwitch.current = true;
     setShowRef(true);
@@ -219,6 +249,17 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   }
 
   const codeHeading = viewingRef ? "Correct solution" : "Your solution";
+  const shown = viewingRef && reference ? { run: reference, stepper: refStepper, label: "Correct solution" } : mine ? { run: mine, stepper: mineStepper, label: "Your solution" } : null;
+  const runSwitch = (focusTarget: boolean) => (
+    <div className="segmented" role="group" aria-label="Which run to show">
+      <button type="button" aria-pressed={view === "mine"} onClick={() => setView("mine")}>
+        Your solution
+      </button>
+      <button type="button" ref={focusTarget ? refSwitch : undefined} aria-pressed={view === "ref"} onClick={() => setView("ref")}>
+        Correct solution
+      </button>
+    </div>
+  );
 
   return (
     <div className="workspace">
@@ -258,16 +299,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
         <div className="panel-head">
           <h2 id="solution-heading">{codeHeading}</h2>
           <div className="toolbar">
-            {showRef && (
-              <div className="segmented" role="group" aria-label="Which run to show">
-                <button type="button" aria-pressed={view === "mine"} onClick={() => setView("mine")}>
-                  Your solution
-                </button>
-                <button type="button" ref={refSwitch} aria-pressed={view === "ref"} onClick={() => setView("ref")}>
-                  Correct solution
-                </button>
-              </div>
-            )}
+            {showRef && runSwitch(true)}
             {mine && !viewingRef && (
               <button type="button" className="tool-button" onClick={() => setEditing(!editing)}>
                 {editing ? "Show steps" : "Edit code"}
@@ -278,6 +310,9 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
                 Show the correct solution
               </button>
             )}
+            <button type="button" className="visualize-button open-visualizer" ref={openerRef} onClick={openVisualizer} aria-disabled={running}>
+              Open Code Visualizer
+            </button>
           </div>
         </div>
         {viewingRef ? (
@@ -386,9 +421,9 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
                 program={mine.program}
                 trace={mine.trace}
                 lang={lang}
-                traceId={mine.id}
                 stepper={mineStepper}
-                active={!viewingRef}
+                active={!viewingRef && !visualizing}
+                onOpenVisualizer={openVisualizer}
               />
             </div>
             {showRef && reference && (
@@ -399,15 +434,32 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
                   program={reference.program}
                   trace={reference.trace}
                   lang={lang}
-                  traceId={reference.id}
                   stepper={refStepper}
-                  active={viewingRef}
+                  active={viewingRef && !visualizing}
+                  onOpenVisualizer={openVisualizer}
                 />
               </div>
             )}
           </>
         )}
       </section>
+
+      {visualizing && shown && (
+        <CodeVisualizer
+          key={shown.run.id}
+          title={problem.title}
+          runLabel={shown.label}
+          program={shown.run.program}
+          steps={shown.stepper.steps}
+          codeHash={shown.run.trace.codeHash}
+          traceId={shown.run.id}
+          index={shown.stepper.i}
+          onIndexChange={shown.stepper.goTo}
+          lang={lang}
+          onClose={() => setVisualizing(false)}
+          headerExtra={showRef ? runSwitch(false) : undefined}
+        />
+      )}
     </div>
   );
 }

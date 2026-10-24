@@ -34,6 +34,10 @@
   --label-fg: #ffffff;
   --frame-current-edge: #2563eb;
   --frame-current-bg: rgba(37, 99, 235, 0.08);
+  --ptr-mid-bg: #6d28d9;
+  --ptr-mid-fg: #ffffff;
+  --window-edge: #7c3aed;
+  --window-bg: rgba(124, 58, 237, 0.08);
   --new-bg: #d9f2df;
   --new-fg: #0a4019;
   --changed-bg: #ede9fe;
@@ -95,6 +99,10 @@
     --label-fg: #ffffff;
     --frame-current-edge: #3b82f6;
     --frame-current-bg: rgba(59, 130, 246, 0.14);
+    --ptr-mid-bg: #c4b5fd;
+    --ptr-mid-fg: #1e1b4b;
+    --window-edge: #a78bfa;
+    --window-bg: rgba(167, 139, 250, 0.1);
     --new-bg: #0f3d2a;
     --new-fg: #b6f5d0;
     --changed-bg: #2e1f5e;
@@ -1804,9 +1812,10 @@ a {
   margin-top: 4px;
 }
 
-/* Code lines never wrap (long lines scroll sideways), and the next-line label
-   stays in view at the right edge. Ligatures are off so `->` and `!=` look
-   exactly like what the student typed. */
+/* Code lines never wrap (long lines scroll sideways). The next-line label
+   follows the line's text so it never covers code; the ▶ in the gutter marks
+   the line even when a long line pushes the label out of view. Ligatures are
+   off so `->` and `!=` look exactly like what the student typed. */
 .code-lines {
   min-width: max-content;
 }
@@ -1816,9 +1825,7 @@ a {
 }
 
 .line-label {
-  position: sticky;
-  right: 8px;
-  margin-left: auto;
+  margin-left: 6px;
 }
 
 code,
@@ -1841,5 +1848,711 @@ pre,
     padding: 10px 18px;
     background: var(--panel);
     border-bottom: 1px solid var(--rule);
+  }
+}
+
+/* ---- Code Visualizer ------------------------------------------------------
+   A focused, full-screen view: code left, visualization right (resizable),
+   the control bar along the bottom. Motion only shows what changed, and it
+   is off when the user asks for reduced motion (see the rule near the top). */
+
+@keyframes cv-pop {
+  from {
+    transform: scale(0.92);
+    opacity: 0.4;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.cv-root {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  background: var(--page-bg);
+  background-color: var(--bg);
+  color: var(--fg);
+}
+
+.cv-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.cv-titles h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  letter-spacing: -0.01em;
+}
+
+.cv-titles h2:focus {
+  outline: none;
+}
+
+.cv-titles h2:focus-visible {
+  outline: 3px solid var(--focus);
+}
+
+.cv-subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.cv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cv-actions .tool-button[aria-pressed="true"] {
+  color: var(--button-fg);
+  background: var(--button-bg);
+  border-color: var(--button-bg);
+}
+
+.cv-actions .tool-button[aria-pressed="true"]::before {
+  content: "✓ ";
+}
+
+.cv-split {
+  display: grid;
+  grid-template-columns: minmax(0, var(--split)) 14px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.cv-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.cv-code,
+.cv-viz {
+  min-height: 0;
+  overflow: auto;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  overscroll-behavior: contain;
+}
+
+.cv-code {
+  display: flex;
+  flex-direction: column;
+}
+
+.cv-code .code-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cv-code .code-lines {
+  font-size: 1.02rem;
+}
+
+.cv-panel-title,
+.cv-label {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cv-context {
+  margin: 0 0 10px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.line-mark {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--accent);
+  border: 1px solid var(--soft-border);
+  white-space: nowrap;
+}
+
+.cv-separator {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.cv-separator::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 56px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: var(--soft-border);
+  transition: background 0.2s, height 0.2s;
+}
+
+.cv-separator:hover::before,
+.cv-separator:focus-visible::before,
+.cv-dragging .cv-separator::before {
+  height: 96px;
+  background: var(--accent);
+}
+
+.cv-separator:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+
+.cv-tutor {
+  margin-bottom: 12px;
+}
+
+.cv-changes,
+.cv-watch,
+.cv-output {
+  margin-bottom: 14px;
+}
+
+.cv-chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.cv-chip {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  padding: 4px 11px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--cell-bg);
+  border: 1px solid var(--soft-border);
+}
+
+.cv-chip code {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.cv-chip-changed {
+  color: var(--changed-fg);
+  background: var(--changed-bg);
+  border-color: transparent;
+  animation: cv-pop 0.35s ease-out;
+}
+
+.cv-chip-changed code {
+  color: inherit;
+}
+
+.cv-quiet {
+  margin: 0;
+  color: var(--muted);
+}
+
+.cv-stage {
+  display: grid;
+  gap: 16px;
+  margin: 4px 0 18px;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--code-bg);
+  border: 1px solid var(--soft-border);
+}
+
+.cv-stage .ds .subheading {
+  margin-top: 0;
+}
+
+.cv-stage .ds-card {
+  background: transparent;
+}
+
+.cv-stage .viz-svg {
+  max-height: 46vh;
+}
+
+.cv-output .output {
+  margin: 0;
+}
+
+details.all-vars {
+  border-top: 1px solid var(--rule);
+  padding-top: 10px;
+}
+
+details.all-vars summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 32px;
+}
+
+.cv-vars .var-group th {
+  padding-top: 12px;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--rule);
+}
+
+.cv-vars .var-same th,
+.cv-vars .var-same td {
+  color: var(--muted);
+}
+
+.cv-footer .control-bar {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+}
+
+/* Narrow screens: code above the visualization, the page scrolls, the
+   control bar stays at the bottom. */
+@media (max-width: 899px) {
+  .cv-root {
+    display: block;
+    overflow: auto;
+    padding: 10px 10px 0;
+  }
+  .cv-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .cv-separator {
+    display: none;
+  }
+  .cv-code .code-view {
+    max-height: 38vh;
+  }
+  .cv-footer {
+    position: sticky;
+    bottom: 0;
+    padding: 10px 0;
+  }
+}
+
+/* ---- Control bar ---------------------------------------------------------- */
+
+.control-bar {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 20px;
+}
+
+.cb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.cb-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cb-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: var(--fg);
+  background: var(--cell-bg);
+  border: 1px solid var(--soft-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.cb-button:hover:not([aria-disabled="true"]) {
+  border-color: var(--accent);
+}
+
+.cb-button:active:not([aria-disabled="true"]) {
+  transform: scale(0.94);
+}
+
+.cb-button[aria-disabled="true"] {
+  color: var(--muted);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+.cb-play {
+  width: 52px;
+  height: 52px;
+  color: var(--button-fg);
+  background: var(--button-bg);
+  border-color: transparent;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
+}
+
+.cb-play:hover {
+  background: var(--button-hover);
+}
+
+.cb-icon {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.cb-progress {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+
+.cb-slider {
+  width: 100%;
+  accent-color: var(--button-bg);
+}
+
+.cb-speed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.cb-speed select {
+  min-height: 40px;
+  padding: 4px 10px;
+  font: inherit;
+  color: var(--fg);
+  background: var(--cell-bg);
+  border: 1px solid var(--soft-border);
+  border-radius: 12px;
+}
+
+.cb-desc {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.cb-count {
+  color: var(--accent);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+@media (forced-colors: active) {
+  .cb-button,
+  .cb-speed select {
+    border: 1px solid ButtonText;
+  }
+}
+
+/* The workspace's compact Step through panel. */
+.ws-visual .control-bar {
+  padding: 0;
+  margin-bottom: 6px;
+}
+
+.viewer-more {
+  margin-top: 14px;
+}
+
+.link-button {
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.open-visualizer {
+  font-weight: 700;
+}
+
+/* ---- Array stage: a list drawn large, pointers above their cells ---------- */
+
+.stage-array {
+  margin: 0;
+}
+
+.stage-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--muted);
+}
+
+.stage-caption code {
+  color: var(--fg);
+  font-weight: 700;
+  font-size: 1.02rem;
+}
+
+.stage-chip {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: var(--fg);
+  background: var(--cell-bg);
+  border: 1px solid var(--soft-border);
+}
+
+.stage-chip-window {
+  border-color: var(--window-edge);
+  background: var(--window-bg);
+}
+
+.sa-scroll {
+  overflow-x: auto;
+  padding: 2px 4px 8px;
+}
+
+.sa-track {
+  --cell: 64px;
+  --gap: 10px;
+  --ptr-row: 30px;
+  position: relative;
+  width: max-content;
+  padding-top: calc(var(--rows) * var(--ptr-row) + 8px);
+}
+
+@media (min-width: 1200px) {
+  .cv-stage .sa-track {
+    --cell: 76px;
+  }
+}
+
+.sa-cells {
+  list-style: none;
+  display: flex;
+  gap: var(--gap);
+  margin: 0;
+  padding: 0;
+}
+
+.sa-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: var(--cell);
+}
+
+.sa-value {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: var(--cell);
+  font-family: var(--mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  background: var(--cell-bg);
+  border: 1px solid var(--soft-border);
+  border-radius: 14px;
+  transition: background 0.3s, border-color 0.3s, color 0.3s, box-shadow 0.3s;
+}
+
+.sa-index {
+  order: 2;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.sa-value {
+  order: 1;
+}
+
+.sa-note {
+  order: 3;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+  color: var(--changed-fg);
+  background: var(--changed-bg);
+}
+
+.sa-written .sa-value {
+  color: var(--changed-fg);
+  background: var(--changed-bg);
+  border-color: var(--window-edge);
+  animation: cv-pop 0.4s ease-out;
+}
+
+.sa-read .sa-value {
+  border: 2px dashed var(--accent);
+}
+
+.sa-in-window .sa-value {
+  border-color: var(--window-edge);
+}
+
+.sa-at-mid .sa-value {
+  box-shadow: 0 0 0 3px var(--ptr-mid-bg);
+}
+
+.sa-out .sa-value {
+  color: var(--muted);
+  background: transparent;
+  border-style: dashed;
+  text-decoration: line-through;
+}
+
+.sa-pointers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--rows) * var(--ptr-row));
+  pointer-events: none;
+}
+
+.sa-ptr {
+  position: absolute;
+  left: calc(var(--i) * (var(--cell) + var(--gap)) + var(--cell) / 2);
+  bottom: calc(var(--row) * var(--ptr-row) + 2px);
+  transform: translateX(-50%);
+  padding: 2px 9px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--button-fg);
+  background: var(--button-bg);
+  border-radius: 999px;
+  transition: left 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.sa-ptr::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  border: 5px solid transparent;
+  border-bottom: 0;
+  border-top-color: inherit;
+  transform: translateX(-50%);
+}
+
+.sa-ptr,
+.sa-ptr::after {
+  border-top-color: var(--button-bg);
+}
+
+.sa-ptr-mid {
+  color: var(--ptr-mid-fg);
+  background: var(--ptr-mid-bg);
+}
+
+.sa-ptr-mid::after {
+  border-top-color: var(--ptr-mid-bg);
+}
+
+.sa-window {
+  position: absolute;
+  top: calc(var(--rows) * var(--ptr-row) + 2px);
+  bottom: 22px;
+  left: calc(var(--from) * (var(--cell) + var(--gap)) - 6px);
+  width: calc((var(--to) - var(--from) + 1) * (var(--cell) + var(--gap)) + 2px);
+  border: 2px solid var(--window-edge);
+  border-radius: 18px;
+  background: var(--window-bg);
+  pointer-events: none;
+  transition: left 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (forced-colors: active) {
+  .sa-ptr,
+  .sa-window,
+  .sa-value {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* Recursion: the tree (or other structure) and the call stack side by side. */
+@media (min-width: 1200px) {
+  .cv-stage-with-stack {
+    grid-template-columns: minmax(0, 1.5fr) minmax(220px, 1fr);
+    align-items: start;
+  }
+}
+
+/* The drawings' text outlines stay for screen readers; on screen the
+   visualizer shows the drawing alone. */
+.cv-stage .viz-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.cv-stack .call-stack .subheading {
+  margin-top: 0;
+}
+
+/* Narrow screens: a shorter control bar (buttons and speed on one row, the
+   slider under them) so the visualization keeps most of the screen. */
+@media (max-width: 899px) {
+  .control-bar {
+    gap: 6px;
+  }
+  .cv-footer .control-bar {
+    padding: 8px 10px;
+  }
+  .cb-row {
+    gap: 6px 10px;
+  }
+  .cb-progress {
+    order: 3;
+    flex-basis: 100%;
+  }
+  .cb-button {
+    width: 40px;
+    height: 40px;
+  }
+  .cb-play {
+    width: 46px;
+    height: 46px;
+  }
+  .cb-desc {
+    font-size: 0.9rem;
   }
 }

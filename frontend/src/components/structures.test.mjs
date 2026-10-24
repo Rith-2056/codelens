@@ -1,5 +1,5 @@
 // Tests for the UI's pure logic: value text, renderer choice, pointers,
-// change text, frames, and jump-to-change. Run from the repo root:
+// change text and frames. Run from the repo root:
 //   node --test frontend/src/components/*.test.mjs
 // Node 24 strips TypeScript types natively; every import uses a .ts extension.
 
@@ -17,7 +17,6 @@ import {
   topStructureChange,
   viewKindOf,
 } from "./structures.ts";
-import { findChange, ownerFrame, variableNames } from "./jump.ts";
 
 function step(fields) {
   return {
@@ -193,85 +192,4 @@ test("framesOf falls back to the current frame for old fixtures", () => {
   const s = step({ locals: { a: 1 } });
   delete s.stack;
   assert.deepEqual(framesOf(s), [{ functionName: "<module>", frameId: "module", line: 1, locals: { a: 1 } }]);
-});
-
-// ---- jump to change -------------------------------------------------------
-
-const LOOP = [
-  step({ index: 0, locals: {} }),
-  step({ index: 1, locals: { total: 0 } }),
-  step({ index: 2, locals: { total: 0, n: 3 } }),
-  step({ index: 3, locals: { total: 3, n: 3 } }),
-  step({ index: 4, locals: { total: 3, n: 1 } }),
-  step({ index: 5, locals: { total: 4, n: 1 } }),
-];
-
-test("variableNames lists every local in order of first appearance", () => {
-  assert.deepEqual(variableNames(LOOP), ["total", "n"]);
-});
-
-test("findChange forward finds the next differing step", () => {
-  assert.equal(findChange(LOOP, 1, "total", 1), 3);
-  assert.equal(findChange(LOOP, 3, "total", 1), 5);
-  assert.equal(findChange(LOOP, 5, "total", 1), -1);
-  assert.equal(findChange(LOOP, 0, "n", 1), 2); // appears
-});
-
-test("findChange backward lands on the step where the value changed", () => {
-  assert.equal(findChange(LOOP, 5, "total", -1), 3);
-  assert.equal(findChange(LOOP, 4, "total", -1), 3);
-  assert.equal(findChange(LOOP, 3, "total", -1), 1);
-  assert.equal(findChange(LOOP, 1, "total", -1), -1);
-  assert.equal(findChange(LOOP, 0, "total", -1), -1);
-});
-
-test("findChange compares structures with sameValue", () => {
-  const steps = [
-    step({ index: 0, locals: { s: { __set: [1, 2] } } }),
-    step({ index: 1, locals: { s: { __set: [2, 1] } } }),
-    step({ index: 2, locals: { s: { __set: [1, 2, 3] } } }),
-  ];
-  assert.equal(findChange(steps, 0, "s", 1), 2);
-});
-
-test("findChange tracks a variable in its own frame across calls", () => {
-  const mod = (index, locals, extra = {}) => step({ index, locals, ...extra });
-  const inF = (index, locals, total) =>
-    step({
-      index,
-      functionName: "f",
-      frameId: "f-1",
-      depth: 1,
-      locals,
-      stack: [
-        { functionName: "<module>", frameId: "module", line: 5, locals: { total } },
-        { functionName: "f", frameId: "f-1", line: 2, locals },
-      ],
-    });
-  const steps = [
-    mod(0, { total: 1 }),
-    inF(1, { a: 1 }, 1),
-    inF(2, { a: 1, b: 2 }, 1),
-    mod(3, { total: 1 }),
-    mod(4, { total: 3 }),
-  ];
-  // From inside f, total belongs to the module frame: f's steps are skipped.
-  assert.deepEqual(ownerFrame(steps, 1, "total")?.frameId, "module");
-  assert.equal(findChange(steps, 1, "total", 1), 4);
-  assert.equal(findChange(steps, 0, "total", 1), 4);
-  // b changes inside f; after f returns there is no later change in that call.
-  assert.equal(findChange(steps, 1, "b", 1), 2);
-  assert.equal(findChange(steps, 2, "b", 1), -1);
-  assert.equal(findChange(steps, 2, "a", -1), 1);
-});
-
-test("findChange stays fast on a 2000-step trace", () => {
-  const steps = Array.from({ length: 2000 }, (_, i) =>
-    step({ index: i, locals: { seen: { __dict: Array.from({ length: 20 }, (_, k) => [k, 0]) }, i: i < 1999 ? 0 : 1 } }),
-  );
-  const t0 = performance.now();
-  assert.equal(findChange(steps, 0, "seen", 1), -1);
-  assert.equal(findChange(steps, 0, "i", 1), 1999);
-  assert.equal(findChange(steps, 1999, "i", -1), 0); // i appeared at step 0
-  assert.ok(performance.now() - t0 < 500);
 });

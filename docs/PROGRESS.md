@@ -160,7 +160,7 @@ Decisions (2026-10-24):
 | 12 | Mistake categories and saved sessions | done |
 | 13 | Live Gemini test | done |
 | 14 | Side-by-side workspace, syntax colors, new palette and fonts | done |
-| 15 | Code Visualizer mode (focused debugger view) | in progress |
+| 15 | Code Visualizer mode (focused debugger view) | done |
 
 ### Stage 7: Claude → Gemini
 - **Docs checked first:** Google's quickstart, text generation and models pages,
@@ -556,3 +556,63 @@ one-number list, and a loop that skips the last window is caught on
 `[[-1, 0], 1]`. Both bugs are classed as off-by-one. A first version had
 2,930 average inputs and timed out once under load, so I cut the generators
 down.
+
+**15b: the Code Visualizer, tests first.**
+- **Step logic** (`visualizer/focus.ts`, 17 tests on real traces):
+  - which algorithm a run uses: binary search, sliding window, two pointers,
+    DP, tree, graph, hash map, plain list or general. This is read from the
+    trace and the code, never from the problem, so the Your code page gets it
+    too.
+  - where a step is: function, recursion depth, the enclosing loop and its pass
+  - which list cells a line reads or writes, e.g. `ways[i - 1]` or `nums[:k]`,
+    using a small safe evaluator for index expressions
+  - each variable grouped (parameters, loop counters, pointers, other) and
+    marked changed or relevant
+  - what changed, with spoken text that avoids the arrow symbol
+- **Control bar** (6 tests):
+  - Restart, Previous, Play/Pause, Next, speed (0.5x to 4x), a progress
+    slider, and the step's sentence
+  - Play stops at the end; stepping by hand pauses it
+  - the end buttons stay focusable
+- **The visualizer** (13 tests):
+  - a full-screen dialog; the page behind it is inert and hidden from screen
+    readers; Esc or Exit closes it
+  - code on the left: next line marked, syntax colored, "In search() · while
+    loop, pass 2" or "call 5 deep (recursion)", and that function's and
+    loop's lines labeled
+  - a split you can resize (drag, or arrow keys on the divider); the width is
+    remembered. A test found the width was never saved: a local variable
+    named `window` hid the browser's `window`. Renamed.
+  - the visualization on the right: what changed, a large view chosen for the
+    algorithm, the variables in focus, and every variable grouped behind a
+    collapsed "All variables" section
+  - Binary search: `lo`, `mid` and `hi` sit above their cells, and ruled-out
+    cells are struck through. Sliding window: a band over the k cells with
+    the window's value. DP: the cell just written and the cells it read.
+    Recursion: the tree and the call stack side by side. Graph: the graph and
+    the queue.
+  - pointer labels glide and changed cells pop, but only when reduced motion
+    is not requested
+  - per-step AI explanations are off by default (an "AI explanation" toggle),
+    which saves the free-tier quota
+- **Pages:**
+  - the code panel has an "Open Code Visualizer" button. Before any run it
+    runs the chosen example first. Exit returns to the same step, with focus
+    back on the button.
+  - the correct solution's run opens with the switch in the visualizer's
+    header
+  - the workspace's Step through panel is compact: the control bar, what
+    changed, and a link to the visualizer
+  - the old step widgets (Timeline, Scrubber, Jump to a change, Variables
+    table) are removed. "Jump to a change of a variable" is gone for now.
+- **Acceptance tests moved into the visualizer:** the hash map growing, the
+  set growing, pointers moving inward, the graph, queue and visited marks, the
+  tree with the call stack 6 deep, and the DP list filling. axe finds no
+  violations on a problem and on the Your code page with the visualizer open.
+- **Browser check** (1440x900 dark, 375 px phone): binary search, sliding
+  window, DP and recursion as described above. Exit keeps the step. On a
+  phone the code sits above the visualization and the control bar is
+  compact. Two fixes came from this check: the next-line label no longer
+  covers long lines, and the tree's text outline is hidden on screen (screen
+  readers still get it).
+- **Checks:** all green.

@@ -1,20 +1,16 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import CallStack from "../components/CallStack";
-import CodeView, { sourceLines } from "../components/CodeView";
-import DataStructures from "../components/DataStructures";
+import CodeView from "../components/CodeView";
 import Editor from "../components/Editor";
-import Explanation from "../components/Explanation";
-import JumpToChange from "../components/JumpToChange";
 import LessonPicker from "../components/LessonPicker";
 import Narrator from "../components/Narrator";
 import RunStatus, { statusMessage } from "../components/RunStatus";
-import Scrubber from "../components/Scrubber";
-import Timeline from "../components/Timeline";
-import Variables from "../components/Variables";
 import { canVisualize, initialRunState, runReducer, traceOf } from "../components/runState";
-import { variableNames } from "../components/jump";
 import { previousInFrame } from "../components/stepInfo";
-import { framesOf, structuresFor, topStructureChange } from "../components/structures";
+import { structuresFor, topStructureChange } from "../components/structures";
+import ChangeList from "../visualizer/ChangeList";
+import CodeVisualizer from "../visualizer/CodeVisualizer";
+import ControlBar from "../visualizer/ControlBar";
+import { stepChanges } from "../visualizer/focus";
 import { explainStep, type Lang } from "../explain";
 import { lessonById, lessons, type LessonId } from "../lessons";
 import { onTracerStatus, preloadTracer, runTrace } from "../worker/traceClient";
@@ -36,6 +32,11 @@ export default function Playground() {
   const editToggleRef = useRef<HTMLButtonElement>(null);
   const editorHadFocus = useRef(false);
   const focusEditorNext = useRef(false);
+  /** The Code Visualizer is open (a full-screen view over this page). */
+  const [visualizing, setVisualizing] = useState(false);
+  const openWhenTraced = useRef(false);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const wasVisualizing = useRef(false);
 
   // Start loading Python as soon as the page opens; fixtures work meanwhile.
   useEffect(() => {
@@ -118,9 +119,7 @@ export default function Playground() {
     () => (step ? structuresFor(step.locals, prevStep?.locals) : []),
     [step, prevStep],
   );
-  const names = useMemo(() => variableNames(steps), [steps]);
   const heap = step?.heap ?? {};
-  const lineText = step && traced ? (sourceLines(traced.code)[step.line - 1] ?? "") : "";
 
   const status = statusMessage(state);
   const errorIndex = state.phase.name === "error" ? steps.length - 1 : -1;
@@ -128,6 +127,30 @@ export default function Playground() {
     step && traced ? explainStep(index > 0 ? steps[index - 1] : undefined, step, lang, traced.code) : undefined;
 
   const stepping = !showEditor && traced !== null && step !== undefined;
+
+  // "Open Code Visualizer" with new code: it opens once that code is traced.
+  useEffect(() => {
+    if (traceId !== undefined && openWhenTraced.current) {
+      openWhenTraced.current = false;
+      if (steps.length > 0) setVisualizing(true);
+    }
+  }, [traceId, steps.length]);
+
+  // Back from the visualizer: focus returns to the button that opened it.
+  useEffect(() => {
+    if (wasVisualizing.current && !visualizing) openerRef.current?.focus();
+    wasVisualizing.current = visualizing;
+  }, [visualizing]);
+
+  function openVisualizer() {
+    if (traced && steps.length > 0 && traced.code === state.code) {
+      setMode("step");
+      setVisualizing(true);
+    } else if (visualizeOk) {
+      openWhenTraced.current = true;
+      visualize();
+    }
+  }
 
   return (
     <>
@@ -162,6 +185,9 @@ export default function Playground() {
                 aria-describedby="run-status"
               >
                 {busy ? "Running…" : "Visualize"}
+              </button>
+              <button type="button" className="tool-button open-visualizer" ref={openerRef} onClick={openVisualizer} aria-disabled={busy}>
+                Open Code Visualizer
               </button>
             </div>
           </div>
@@ -211,9 +237,14 @@ export default function Playground() {
           </div>
           {stepping ? (
             <>
-              <Timeline index={index} total={steps.length} onIndexChange={(i) => goToStep(i)} />
-              <Scrubber index={index} total={steps.length} line={step.line} onScrub={(i) => goToStep(i, true)} />
-              <JumpToChange key={traced.traceId} steps={steps} index={index} names={names} onJump={(i) => goToStep(i)} />
+              <ControlBar
+                index={index}
+                total={steps.length}
+                line={step.line}
+                description={template ?? ""}
+                onIndexChange={goToStep}
+                globalKeys={!visualizing}
+              />
               {errorIndex >= 0 && (
                 // Stays mounted (aria-disabled at the error) so focus is not lost.
                 <button
@@ -228,24 +259,14 @@ export default function Playground() {
               {traced.trace.truncated && (
                 <p className="hint">Some values or output were too long, so CodeLens shortened them.</p>
               )}
-              <p className="hint">Tip: use the Left and Right arrow keys to step, or the slider for long runs.</p>
-
-              <h3 className="subheading" id="explain-heading">
-                What is happening
-              </h3>
-              <Explanation
-                steps={steps}
-                index={index}
-                lang={lang}
-                code={traced.code}
-                codeHash={traced.trace.codeHash}
-                traceId={traced.traceId}
-              />
-              <DataStructures items={structures} locals={step.locals} heap={heap} line={lineText} frames={framesOf(step)} />
-              <h3 className="subheading">Variables</h3>
-              <p className="hint">Values right now, before the highlighted line runs.</p>
-              <Variables current={step.locals} previous={prevStep?.locals} heap={heap} prevHeap={prevStep?.heap ?? {}} />
-              <CallStack step={step} />
+              <h3 className="subheading">What changed</h3>
+              <ChangeList changes={stepChanges(step, prevStep)} />
+              <p className="hint viewer-more">
+                Lists, pointers, hash maps and every variable are drawn in the Code Visualizer.{" "}
+                <button type="button" className="link-button" onClick={openVisualizer}>
+                  Show details in the Code Visualizer
+                </button>
+              </p>
             </>
           ) : (
             <p className="empty">
@@ -256,9 +277,24 @@ export default function Playground() {
           )}
         </section>
       </div>
+      {visualizing && traced && steps.length > 0 && (
+        <CodeVisualizer
+          key={String(traced.traceId)}
+          title="Your code"
+          runLabel={edited ? `Your code (from the ${lesson.short} lesson)` : lesson.title}
+          program={traced.code}
+          steps={steps}
+          codeHash={traced.trace.codeHash}
+          traceId={String(traced.traceId)}
+          index={index}
+          onIndexChange={goToStep}
+          lang={lang}
+          onClose={() => setVisualizing(false)}
+        />
+      )}
       <Narrator
         source={traced?.code ?? ""}
-        step={showEditor ? undefined : step}
+        step={showEditor || visualizing ? undefined : step}
         index={index}
         total={steps.length}
         explanation={template}

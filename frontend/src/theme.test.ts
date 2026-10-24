@@ -83,6 +83,14 @@ for (const scope of ["light", "dark"] as const) {
       expect(contrast(parseColor(t["accent-fg"]!).rgb, parseColor(t["accent"]!).rgb)).toBeGreaterThanOrEqual(4.5);
     });
 
+    it("visualizer pointer labels (mid in lavender, others in blue) reach 4.5:1", () => {
+      expect(contrast(parseColor(t["ptr-mid-fg"]!).rgb, parseColor(t["ptr-mid-bg"]!).rgb)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(parseColor(t["button-fg"]!).rgb, parseColor(t["button-bg"]!).rgb)).toBeGreaterThanOrEqual(4.5);
+      const h = hue(parseColor(t["window-edge"]!).rgb);
+      expect(h).toBeGreaterThanOrEqual(250); // the sliding window is lavender
+      expect(h).toBeLessThanOrEqual(290);
+    });
+
     it("filled buttons (button-fg on button-bg) and line labels (label-fg on label-bg) reach 4.5:1", () => {
       expect(contrast(parseColor(t["button-fg"]!).rgb, parseColor(t["button-bg"]!).rgb)).toBeGreaterThanOrEqual(4.5);
       expect(contrast(parseColor(t["label-fg"]!).rgb, parseColor(t["label-bg"]!).rgb)).toBeGreaterThanOrEqual(4.5);

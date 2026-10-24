@@ -61,8 +61,10 @@ const stepInfo = () => {
   if (!m) throw new Error(`unexpected slider text: ${text}`);
   return { step: Number(m[1]), total: Number(m[2]), line: Number(m[3]) };
 };
-const next = () => fireEvent.click(screen.getByRole("button", { name: "Next" }));
-const previous = () => fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+const next = () => fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+const previous = () => fireEvent.click(screen.getByRole("button", { name: "Previous step" }));
+/** Variables and data structures live in the Code Visualizer. */
+const openVisualizer = () => fireEvent.click(screen.getByRole("button", { name: "Open Code Visualizer" }));
 
 /** The value cell text of a variable in the Variables table, or undefined. */
 function variable(name: string): string | undefined {
@@ -74,7 +76,8 @@ function variable(name: string): string | undefined {
   }
   return undefined;
 }
-const explanation = () => document.querySelector(".explanation-text")?.textContent?.trim() ?? "";
+/** The control bar's sentence about the current step. */
+const explanation = () => document.querySelector(".cb-desc > span")?.textContent?.trim() ?? "";
 const currentLineLabel = () => document.querySelector(".code-line.current .line-label")?.textContent?.trim();
 function toEnd(each?: () => void) {
   each?.();
@@ -93,7 +96,7 @@ async function visualize(code: string, result: TraceResult) {
   fireEvent.click(screen.getByRole("button", { name: /edit code/i }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: code } });
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: /visualize/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^visualize$/i }));
   });
 }
 
@@ -107,10 +110,11 @@ describe("Your code page layout", () => {
     render(<App />);
     expect(panelNames()).toEqual(["Your code", "Loop: adding up a list", "Output", "Step through"]);
     const steps = screen.getByRole("region", { name: "Step through" });
-    // The step controls and variables sit beside the code, not under it.
+    // The step controls sit beside the code, not under it; the details are in the visualizer.
     expect(within(steps).getByRole("slider")).toBeTruthy();
-    expect(within(steps).getByRole("button", { name: "Next" })).toBeTruthy();
-    expect(steps.querySelector("table.vars, .empty")).toBeTruthy();
+    expect(within(steps).getByRole("button", { name: "Next step" })).toBeTruthy();
+    expect(steps.querySelector("table.vars")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Code Visualizer" })).toBeTruthy();
     const code = screen.getByRole("region", { name: "Loop: adding up a list" });
     expect(code.querySelector(".code-line.current")).toBeTruthy();
     expect(within(code).queryByRole("slider")).toBeNull();
@@ -126,6 +130,7 @@ describe("Your code page layout", () => {
 describe("loop lesson (plan.md acceptance)", () => {
   it("shows total 0 → 3 → 4 → 6, with the next line labeled at every line step", () => {
     render(<App />);
+    openVisualizer();
     const totals: string[] = [];
     toEnd(() => {
       const t = variable("total");
@@ -138,6 +143,7 @@ describe("loop lesson (plan.md acceptance)", () => {
 
   it("steps backward through the stored trace without running Python again", () => {
     render(<App />);
+    openVisualizer();
     for (let i = 0; i < 6; i++) next();
     const at = stepInfo().step;
     const total = variable("total");
@@ -213,7 +219,7 @@ describe("errors and runaway loops (real tracer output)", () => {
 // ---- Level 2 -------------------------------------------------------------------
 
 describe("Level 2 problems (plan.md acceptance, on each problem page)", () => {
-  /** Open a problem, run (mocked), reveal the correct solution, and return its viewer. */
+  /** Open a problem, run (mocked), reveal the correct solution, and open it in the Code Visualizer. */
   async function referenceViewer(slug: string): Promise<HTMLElement> {
     window.history.replaceState(null, "", `#/problems/${slug}`);
     render(<App />);
@@ -223,11 +229,15 @@ describe("Level 2 problems (plan.md acceptance, on each problem page)", () => {
     await act(async () => {
       fireEvent.click(await screen.findByRole("button", { name: /show the correct solution/i }));
     });
-    return screen.findByRole("region", { name: "Correct solution's run" });
+    await screen.findByRole("region", { name: "Correct solution's run" });
+    openVisualizer();
+    const view = screen.getByRole("dialog", { name: /Code Visualizer/ });
+    expect(view.textContent).toMatch(/Correct solution/);
+    return view;
   }
   const inView = (view: HTMLElement) => ({
     info: () => /^Step (\d+) of (\d+)/.exec(view.querySelector('input[type="range"]')!.getAttribute("aria-valuetext")!)!.slice(1).map(Number),
-    next: () => fireEvent.click(within(view).getByRole("button", { name: "Next" })),
+    next: () => fireEvent.click(within(view).getByRole("button", { name: "Next step" })),
     variable: (name: string) => {
       for (const row of view.querySelectorAll("table.vars tbody tr")) {
         const cells = row.querySelectorAll("th, td");
@@ -268,13 +278,13 @@ describe("Level 2 problems (plan.md acceptance, on each problem page)", () => {
     expect(v.output()).toBe("True\n");
   });
 
-  it("Two Sum II: left and right move inward under the cells, and the answer is [3, 4]", async () => {
+  it("Two Sum II: left and right move inward over the cells, and the answer is [3, 4]", async () => {
     const view = await referenceViewer("two-sum-ii-input-array-is-sorted");
     const moves = changes(view, () => {
       const list = within(view).queryByRole("list", { name: /^numbers: list/ });
       if (!list) return undefined;
-      const cells = [...list.querySelectorAll(":scope > li")].map((li) => [...li.querySelectorAll(".pointer code")].map((c) => c.textContent));
-      const at = (p: string) => cells.findIndex((names) => names.includes(p));
+      const cells = [...list.querySelectorAll(":scope > li")].map((li) => li.textContent ?? "");
+      const at = (p: string) => cells.findIndex((text) => text.includes(`pointer ${p} =`));
       return at("left") >= 0 && at("right") >= 0 ? `${at("left")},${at("right")}` : undefined;
     });
     expect(moves).toEqual(["0,5", "0,4", "1,4", "1,3", "2,3"]);
@@ -311,14 +321,14 @@ describe("Level 2 problems (plan.md acceptance, on each problem page)", () => {
     expect(inView(view).output()).toBe("4\n");
   });
 
-  it("Climbing Stairs: the DP list fills to [1, 1, 2, 3, 5, 8, 13] with i under the cell, and the answer is 13", async () => {
+  it("Climbing Stairs: the DP list fills to [1, 1, 2, 3, 5, 8, 13] with i over the cell, and the answer is 13", async () => {
     const view = await referenceViewer("climbing-stairs");
     const v = inView(view);
     let sawPointer = false;
     // `ways` lives inside climbStairs, so read its last value while the method is running.
     const values = changes(view, () => {
       const list = within(view).queryByRole("list", { name: /^ways: list/ });
-      sawPointer ||= !!list && [...list.querySelectorAll(".pointer code")].some((c) => c.textContent === "i");
+      sawPointer ||= !!list && [...list.querySelectorAll(":scope > li")].some((li) => /pointer i = \d/.test(li.textContent ?? ""));
       return v.variable("ways");
     });
     expect(sawPointer).toBe(true);
@@ -328,6 +338,25 @@ describe("Level 2 problems (plan.md acceptance, on each problem page)", () => {
 });
 
 // ---- Accessibility ---------------------------------------------------------------
+
+describe("Code Visualizer accessibility", () => {
+  it("has no axe violations on a problem with a pattern view, and on the Your code page", async () => {
+    window.history.replaceState(null, "", "#/problems/binary-search");
+    render(<App />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+    });
+    openVisualizer();
+    for (let k = 0; k < 8; k++) next();
+    await expectNoAxeViolations();
+    cleanup();
+    window.history.replaceState(null, "", "#/playground");
+    render(<App />);
+    openVisualizer();
+    toEnd();
+    await expectNoAxeViolations();
+  }, 60_000);
+});
 
 describe("accessibility", () => {
   it("has no axe violations at the first, middle and last step of every lesson", async () => {
@@ -348,8 +377,9 @@ describe("accessibility", () => {
     const seen = new Set<string>();
     for (const lesson of lessons) {
       fireEvent.click(screen.getByRole("button", { name: lesson.short }));
+      openVisualizer();
       toEnd(() => {
-        for (const box of document.querySelectorAll(".code-view, .scroll-x")) {
+        for (const box of document.querySelectorAll(".code-view, .scroll-x, .sa-scroll")) {
           const where = `${lesson.id}: ${box.className}`;
           seen.add(box.className);
           expect(box.getAttribute("tabindex"), where).toBe("0");
@@ -358,6 +388,7 @@ describe("accessibility", () => {
           expect(box.getAttribute("aria-label") ?? "", where).not.toBe("");
         }
       });
+      fireEvent.click(screen.getByRole("button", { name: "Exit visualizer" }));
     }
     expect(seen.size).toBeGreaterThan(1); // the code view and at least one structure box were checked
   });
