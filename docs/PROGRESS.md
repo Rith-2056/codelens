@@ -638,3 +638,13 @@ from the end) returns there. The setup steps are still one Previous away.
 Tests: the step logic on real traces (with fallbacks), the control bar's
 Restart, the problem page (steps panel and visualizer open on line 3), and
 the Your code lesson opening on line 1.
+
+**16c: brackets and quotes like an IDE, tests first.** `autoPair.ts` is a pure
+function with 8 tests. ( [ { add their closing bracket, caret inside, but
+only before a space, a closing bracket or the end of the line. Quotes pair,
+but not after a letter (`it's`). Typing a closing character that is already
+there steps over it. A selection gets wrapped. Backspace in an empty pair
+deletes both halves. Enter between brackets opens an indented line. Edits go
+through `insertText`, so the browser's undo still works. A test caught a bug
+before it shipped: at the end of the text, "no pair" and "no next
+character" compared as equal, so Backspace would have deleted two characters.
