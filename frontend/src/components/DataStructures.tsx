@@ -1,4 +1,5 @@
 import type { HeapObject, JsonValue, StackFrame } from "../types/trace";
+import { scrollBox } from "./scrollBox";
 import { dictEntries, itemsOf, resolveRef, sameValue, type Change } from "../explain/snapshot";
 import Arrays from "./Arrays";
 import { GraphView, TreeView } from "./GraphTreeViews";
@@ -117,7 +118,7 @@ function HashMap({ name, value, changes, heap }: { name: string; value: JsonValu
   const changeFor = (k: JsonValue) =>
     changes.find((c) => (c.kind === "added" || c.kind === "changed") && sameValue(c.key, k));
   return (
-    <div className="scroll-x">
+    <div className="scroll-x" {...scrollBox(`${name}: keys and values`)}>
       <table className="ds-table">
         <caption className="sr-only">
           {name}: hash map with {plural(entries.length, "key", "keys")}
@@ -216,7 +217,7 @@ function Queue({ name, items, changes, heap }: { name: string; items: JsonValue[
     </li>
   );
   return (
-    <div className="scroll-x">
+    <div className="scroll-x" {...scrollBox(`${name}: queue`)}>
       {items.length === 0 && <p className="ds-empty">The queue is empty.</p>}
       <ol className="queue" aria-label={`${name}: queue with ${plural(items.length, "item", "items")}, front first`}>
         {poppedFront.map((c, i) => ghost(c, i, "front"))}
@@ -256,7 +257,7 @@ function Grid({ name, rows, changes, heap }: { name: string; rows: JsonValue[][]
   const removedRows = changes.filter((c) => c.kind === "removed").length;
   return (
     <>
-      <div className="scroll-x">
+      <div className="scroll-x" {...scrollBox(`${name}: table`)}>
         <table className="ds-table grid">
           <caption className="sr-only">
             {name}: table with {plural(rows.length, "row", "rows")} and {plural(cols, "column", "columns")}
@@ -317,7 +318,7 @@ function ObjectCard({ obj, heap }: { obj: HeapObject | undefined; heap: Heap }) 
   if (!obj) return <p className="ds-empty">This object could not be shown.</p>;
   const names = Object.keys(obj.fields ?? {});
   return (
-    <div className="scroll-x">
+    <div className="scroll-x" {...scrollBox(objectShort(obj))}>
       <table className="ds-table">
         <caption className="ds-caption">{objectShort(obj)}</caption>
         <thead>

@@ -1,4 +1,5 @@
 import type { TraceStep } from "../types/trace";
+import { scrollBox } from "./scrollBox";
 import { lineLabel } from "./stepInfo";
 
 type Props = { source: string; step: TraceStep | undefined };
@@ -16,7 +17,7 @@ export default function CodeView({ source, step }: Props) {
   const label = step ? lineLabel(step) : "";
   const isError = step?.event === "exception";
   return (
-    <div className="code-view">
+    <div className="code-view" {...scrollBox("Program code")}>
       <ol className="code-lines">
         {lines.map((text, i) => {
           const n = i + 1;

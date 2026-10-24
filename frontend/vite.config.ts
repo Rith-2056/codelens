@@ -10,5 +10,7 @@ export default defineConfig({
     // *.test.mjs files run under `node --test` (see scripts/check-all.sh).
     include: ["src/**/*.test.{ts,tsx}"],
     environment: "jsdom",
+    // Traces real programs (print(x), while True) with the CPython tracer for the acceptance tests.
+    globalSetup: ["./test/acceptance-traces.mjs"],
   },
 });

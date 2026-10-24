@@ -26,7 +26,7 @@ pre-commit hook enforces it).
 |---|---|---|
 | 1 | Branch `codelens-stages`, TDD tooling, commit wave 3 | done |
 | 2 | Graph and tree visualizers | done |
-| 3 | Acceptance and accessibility pass | todo |
+| 3 | Acceptance and accessibility pass | done (real screen reader still to do) |
 | 4 | Fix the stale `StackFrame` comment in `trace.ts` | todo |
 | 5 | Shrink the bundle | todo |
 | 6 | Live Claude API test | paused: needs your API key |
@@ -70,4 +70,41 @@ pre-commit hook enforces it).
   `root` and each `node` marked; no horizontal scroll at 406 px. Badge text got
   a halo so it stays readable over lines (CSS only, no test).
 - **Checks:** all green (189 pytest, 111 node tests, 23 vitest, typecheck,
+  build).
+
+### Stage 3: acceptance and accessibility pass
+- **Tests written first** (`frontend/src/App.test.tsx`, 14 tests on the whole
+  App; the Pyodide worker is mocked, and `print(x)` / `while True` are traced by
+  the real CPython tracer in `frontend/test/acceptance-traces.mjs`):
+  - loop: total 0 → 3 → 4 → 6, "Next line to run" at every line step,
+    backward stepping without running Python again, arrow keys (not while
+    typing)
+  - every step of all nine lessons has a template explanation with
+    `/api/explain` offline; Spanish toggle
+  - `print(x)` ends on line 1 with a NameError explanation; `while True` ends as
+    "limit" in under 2 s and the editor stays usable
+  - Level 2: hash map `{}` → `{4: 0}` → `{4: 0, 9: 1}` and `[1, 2]`; pointers
+    (left, right) = (0,5) (0,4) (1,4) (1,3) (2,3) and `[4, 6]`; graph, queue
+    front/back and visited badges, final hops; tree drawn, call stack 1 → 6 → 1
+    and `4`
+  - axe (jsdom) at the first, middle and last step of every lesson; the
+    narrator's live region changes on each step
+- **First run:** 12 of 13 passed once my test helpers were fixed: "Next" also
+  matched "Next change", the lesson buttons use short names, and the call-stack
+  count included lists inside each card. No product bug showed up in jsdom.
+- **Real-browser sweep** (axe-core with color contrast, 375 px, light and dark,
+  27 checkpoints each): one violation, `scrollable-region-focusable`. The
+  code view and structure boxes scroll sideways on a phone, but the keyboard
+  could not reach them.
+  - Red test first: every sideways-scrolling box must be focusable with a
+    label. Fix: `components/scrollBox.ts`, used by all seven boxes.
+  - After the fix: 0 violations in light and dark, no sideways page scroll; the
+    code box takes keyboard focus with a 3 px outline.
+- **Pyodide:** `while True` and the three `except` variants hit the limit at
+  1999 steps in about 30 ms.
+- **Not covered:** a real screen reader (VoiceOver / NVDA).
+- **Gaps found:** two MVP features in `docs/plan.md` were never built:
+  predict-then-reveal (the loop acceptance test's "predict accepts 4") and the
+  share link.
+- **Checks:** all green (189 pytest, 111 node tests, 37 vitest, typecheck,
   build).

@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { scrollBox } from "./scrollBox";
 import type { JsonValue } from "../types/trace";
 import { dictEntries, itemsOf, sameValue } from "../explain/snapshot";
 import {
@@ -133,7 +134,7 @@ export function TreeView({ name, where, root, badges }: {
 
   return (
     <figure className="viz">
-      <div className="scroll-x">
+      <div className="scroll-x" {...scrollBox(`${name}: tree picture`)}>
         <svg
           className="viz-svg viz-tree"
           viewBox={`0 0 ${width} ${height}`}

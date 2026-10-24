@@ -1,4 +1,5 @@
 import type { JsonValue } from "../types/trace";
+import { scrollBox } from "./scrollBox";
 import type { Change } from "../explain/snapshot";
 import { describeChange, lineUses, pointersFor } from "./structures";
 import { formatValue, plural, type Heap } from "./values";
@@ -32,7 +33,7 @@ export default function Arrays({ name, items, locals, changes, heap, line }: Pro
   }
   return (
     <>
-      <div className="scroll-x">
+      <div className="scroll-x" {...scrollBox(`${name} cells`)}>
         <ol className="cells cells-row" aria-label={`${name}: list with ${plural(items.length, "item", "items")}`}>
           {items.map((item, i) => {
             const change = cellChange.get(i);

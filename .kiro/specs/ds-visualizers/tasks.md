@@ -65,3 +65,4 @@
   - Check keyboard-only use, screen-reader narration of structure changes, 375 px width, and that every Level 2 lesson traces in under 1 s in Pyodide.
   - Run `.venv/bin/pytest`, the `node --test` suites, `npm run typecheck`, and `npm run build`.
   - _Requirements: 3.3, 7.1–7.4, 8.3_
+  - Note (TDD stage 3): done except a real screen-reader run. `App.test.tsx` covers every acceptance test in docs/plan.md plus axe at the first, middle and last step of all nine lessons (jsdom); a real-browser axe sweep (color contrast on) at 375 px in light and dark found one issue, sideways-scrolling boxes keyboard users could not reach, now fixed. `while True` hits the limit in 30 ms in Pyodide. Still open: test with VoiceOver or NVDA.
