@@ -1,7 +1,6 @@
 {
   "status": "ok",
   "truncated": false,
-  "message": "Hand-written fixture for the loop lesson: numbers = [3, 1, 2]; total = 0; for n in numbers: total += n",
   "codeHash": "c3e94b3b6fa056c225dfe5633e7e4c226fe2b944b0ad839d98e9b1c2add5ee8e",
   "steps": [
     {
