@@ -1,4 +1,6 @@
-import { forwardRef, useRef, useState, type KeyboardEvent } from "react";
+import { forwardRef, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { highlightPython } from "./highlight";
+import Highlighted from "./Highlighted";
 
 type Props = {
   code: string;
@@ -30,12 +32,16 @@ function insertText(el: HTMLTextAreaElement, text: string, onChange: (v: string)
 
 // A plain, accessible code editor: a monospace <textarea> with a line-number
 // gutter. Tab indents; Esc then Tab (or Shift+Tab) leaves the field, so the
-// keyboard is never trapped.
+// keyboard is never trapped. Syntax colors come from a copy of the code drawn
+// under the textarea (whose own text is transparent); screen readers and
+// forced-colors mode use the textarea's text.
 const Editor = forwardRef<HTMLTextAreaElement, Props>(function Editor(
   { code, onChange, labelId },
   ref,
 ) {
   const gutterRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLPreElement>(null);
+  const colored = useMemo(() => highlightPython(code), [code]);
   const [tabEscapes, setTabEscapes] = useState(false);
   const lineCount = code.split("\n").length;
 
@@ -75,25 +81,41 @@ const Editor = forwardRef<HTMLTextAreaElement, Props>(function Editor(
           <div key={i}>{i + 1}</div>
         ))}
       </div>
-      <textarea
-        ref={ref}
-        className="editor-input"
-        value={code}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        onBlur={() => setTabEscapes(false)}
-        onScroll={(e) => {
-          if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop;
-        }}
-        aria-labelledby={labelId}
-        aria-describedby="editor-help"
-        spellCheck={false}
-        autoCapitalize="off"
-        autoComplete="off"
-        autoCorrect="off"
-        wrap="off"
-        rows={Math.min(Math.max(lineCount, 8), 20)}
-      />
+      <div className="editor-field">
+        <pre className="editor-highlight" ref={layerRef} aria-hidden="true">
+          {colored.map((line, k) => (
+            <span key={k}>
+              {k > 0 && "\n"}
+              <Highlighted tokens={line} />
+            </span>
+          ))}
+          {/* keeps a last empty line as tall as the textarea's */ " "}
+        </pre>
+        <textarea
+          ref={ref}
+          className="editor-input"
+          value={code}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onBlur={() => setTabEscapes(false)}
+          onScroll={(e) => {
+            const { scrollTop, scrollLeft } = e.currentTarget;
+            if (gutterRef.current) gutterRef.current.scrollTop = scrollTop;
+            if (layerRef.current) {
+              layerRef.current.scrollTop = scrollTop;
+              layerRef.current.scrollLeft = scrollLeft;
+            }
+          }}
+          aria-labelledby={labelId}
+          aria-describedby="editor-help"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          wrap="off"
+          rows={Math.min(Math.max(lineCount, 8), 20)}
+        />
+      </div>
       <p id="editor-help" className="hint editor-help">
         {tabEscapes
           ? "Press Tab now to leave the editor."

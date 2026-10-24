@@ -6,32 +6,39 @@
 :root {
   --bg: #eef2fb;
   --page-bg:
-    radial-gradient(1200px 600px at 10% -10%, #dfe8ff 0%, transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, #f6e3f3 0%, transparent 55%),
-    radial-gradient(900px 600px at 50% 110%, #dff4ee 0%, transparent 60%),
+    radial-gradient(1200px 600px at 10% -10%, #dbe6ff 0%, transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, #ebe3ff 0%, transparent 55%),
+    radial-gradient(900px 600px at 50% 110%, #dff1f4 0%, transparent 60%),
     #eef2fb;
-  --fg: #111111;
-  --muted: #3a3a3c;
+  --fg: #0f172a;
+  --muted: #3f4a5e;
   --panel: #ffffff;
-  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg: rgba(255, 255, 255, 0.74);
   --glass-border: rgba(255, 255, 255, 0.85);
-  --glass-edge: rgba(17, 17, 17, 0.12);
-  --glass-shadow: 0 10px 30px rgba(15, 23, 42, 0.1), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
-  --border: #5c5c5c;
-  --rule: #c7c7cc;
-  --accent: #0a58ca;
+  --glass-edge: rgba(15, 23, 42, 0.1);
+  --glass-shadow: 0 10px 30px rgba(15, 23, 42, 0.08), 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  --border: #6b7280;
+  --soft-border: rgba(15, 23, 42, 0.14);
+  --rule: #d5dae3;
+  --accent: #1d4ed8;
   --accent-fg: #ffffff;
-  --focus: #0a58ca;
-  --line-current-bg: #fff1a8;
-  --line-current-edge: #111111;
-  --line-error-bg: #ffe0e0;
-  --label-bg: #111111;
+  --button-bg: #2563eb;
+  --button-fg: #ffffff;
+  --button-hover: #1d4ed8;
+  --focus: #1d4ed8;
+  --code-bg: #f8fafc;
+  --line-current-bg: rgba(37, 99, 235, 0.12);
+  --line-current-edge: #2563eb;
+  --line-error-bg: #fde2e2;
+  --label-bg: #1d4ed8;
   --label-fg: #ffffff;
+  --frame-current-edge: #2563eb;
+  --frame-current-bg: rgba(37, 99, 235, 0.08);
   --new-bg: #d9f2df;
   --new-fg: #0a4019;
-  --changed-bg: #fde3c6;
-  --changed-fg: #5c2600;
-  --cell-bg: rgba(242, 242, 247, 0.95);
+  --changed-bg: #ede9fe;
+  --changed-fg: #4c1d95;
+  --cell-bg: rgba(241, 245, 249, 0.95);
   --error-bg: #ffe0e0;
   --error-edge: #a30000;
   --warn-bg: #fff1d6;
@@ -40,50 +47,76 @@
   --easy: #0a5c2a;
   --medium: #7a4a00;
   --hard: #a30000;
+  /* Python syntax colors */
+  --syn-keyword: #7c3aed;
+  --syn-function: #1d4ed8;
+  --syn-class: #0d6b63;
+  --syn-builtin: #0e6a85;
+  --syn-constant: #9a4a06;
+  --syn-self: #be185d;
+  --syn-string: #166534;
+  --syn-number: #9a4a06;
+  --syn-comment: #5b6475;
   --radius: 22px;
-  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: "Inter Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, Arial, sans-serif;
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0d1020;
+    --bg: #070b16;
     --page-bg:
-      radial-gradient(1200px 600px at 10% -10%, #1d2a5c 0%, transparent 60%),
-      radial-gradient(900px 500px at 100% 0%, #3a1d4a 0%, transparent 55%),
-      radial-gradient(900px 600px at 50% 110%, #12393a 0%, transparent 60%),
-      #0d1020;
-    --fg: #f5f5f7;
-    --muted: #d1d1d6;
-    --panel: #1c1c24;
-    --glass-bg: rgba(28, 28, 36, 0.72);
-    --glass-border: rgba(255, 255, 255, 0.14);
-    --glass-edge: rgba(255, 255, 255, 0.1);
-    --glass-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
-    --border: #a0a0a0;
-    --rule: #48484a;
-    --accent: #8cc4ff;
-    --accent-fg: #0b1220;
-    --focus: #8cc4ff;
-    --line-current-bg: #4a3d00;
-    --line-current-edge: #ffe066;
-    --line-error-bg: #4d1414;
-    --label-bg: #ffe066;
-    --label-fg: #111111;
-    --new-bg: #0f3d1c;
-    --new-fg: #c4f7d1;
-    --changed-bg: #4a2600;
-    --changed-fg: #ffd9b0;
-    --cell-bg: rgba(44, 44, 52, 0.95);
+      radial-gradient(1200px 700px at 0% -10%, #13234d 0%, transparent 60%),
+      radial-gradient(900px 600px at 100% 0%, #241a4a 0%, transparent 55%),
+      radial-gradient(900px 600px at 50% 120%, #0c2b3a 0%, transparent 60%),
+      #070b16;
+    --fg: #e6eaf2;
+    --muted: #a3afc4;
+    --panel: #0f1526;
+    --glass-bg: rgba(15, 21, 38, 0.78);
+    --glass-border: rgba(148, 163, 184, 0.16);
+    --glass-edge: rgba(148, 163, 184, 0.14);
+    --glass-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+    --border: #5b6b8c;
+    --soft-border: rgba(148, 163, 184, 0.22);
+    --rule: #26314d;
+    --accent: #7cb3ff;
+    --accent-fg: #0a1020;
+    --button-bg: #2563eb;
+    --button-fg: #ffffff;
+    --button-hover: #1d4ed8;
+    --focus: #7cb3ff;
+    --code-bg: #0b1120;
+    --line-current-bg: rgba(59, 130, 246, 0.2);
+    --line-current-edge: #3b82f6;
+    --line-error-bg: rgba(239, 68, 68, 0.2);
+    --label-bg: #2563eb;
+    --label-fg: #ffffff;
+    --frame-current-edge: #3b82f6;
+    --frame-current-bg: rgba(59, 130, 246, 0.14);
+    --new-bg: #0f3d2a;
+    --new-fg: #b6f5d0;
+    --changed-bg: #2e1f5e;
+    --changed-fg: #ddd6fe;
+    --cell-bg: rgba(30, 41, 66, 0.9);
     --error-bg: #3d1010;
     --error-edge: #ff9b9b;
     --warn-bg: #3a2a00;
     --warn-edge: #ffd27a;
-    --info-bg: #14233a;
-    --easy: #7ee2a0;
-    --medium: #ffd27a;
-    --hard: #ff9b9b;
+    --info-bg: #13213d;
+    --easy: #4ade80;
+    --medium: #fbbf24;
+    --hard: #f87171;
+    --syn-keyword: #c792ea;
+    --syn-function: #82aaff;
+    --syn-class: #4fd1c5;
+    --syn-builtin: #89ddff;
+    --syn-constant: #f78c6c;
+    --syn-self: #ff9cac;
+    --syn-string: #c3e88d;
+    --syn-number: #f78c6c;
+    --syn-comment: #8b98b8;
   }
 }
 
@@ -180,7 +213,7 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 8px 16px;
-  max-width: 1100px;
+  max-width: 1640px;
   margin: 8px auto 0;
   padding: 8px 10px 8px 18px;
   border-radius: 999px;
@@ -413,16 +446,17 @@ a {
 .code-view {
   position: relative;
   overflow-x: auto;
-  border: 1px solid var(--border);
+  background: var(--code-bg);
+  border: 1px solid var(--soft-border);
   border-radius: 6px;
 }
 
 .code-lines {
   list-style: none;
   margin: 0;
-  padding: 6px 0;
+  padding: 8px 0;
   font-family: var(--mono);
-  font-size: 1.05rem;
+  font-size: 0.98rem;
 }
 
 .code-line {
@@ -439,7 +473,6 @@ a {
 .code-line.current {
   background: var(--line-current-bg);
   border-left-color: var(--line-current-edge);
-  font-weight: 700;
 }
 
 .code-line.current.error {
@@ -499,16 +532,15 @@ a {
   padding: 8px 16px;
   font: inherit;
   font-weight: 700;
-  color: var(--bg);
-  background: var(--fg);
-  border: 2px solid var(--fg);
+  color: var(--button-fg);
+  background: var(--button-bg);
+  border: 2px solid var(--button-bg);
   border-radius: 6px;
   cursor: pointer;
 }
 
 .step-button:hover:not([aria-disabled="true"]) {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--button-hover);
 }
 
 @media (max-width: 480px) {
@@ -616,11 +648,12 @@ a {
   display: block;
   width: 100%;
   text-align: center;
-  padding: 4px 6px;
+  padding: 8px 10px;
   font-family: var(--mono);
+  font-weight: 600;
   background: var(--cell-bg);
-  border: 2px solid var(--border);
-  border-radius: 4px;
+  border: 1px solid var(--soft-border);
+  border-radius: 10px;
 }
 
 /* Lesson picker and toolbar */
@@ -677,9 +710,10 @@ a {
   min-height: 44px;
   padding: 6px 14px;
   font: inherit;
+  font-weight: 600;
   color: var(--fg);
-  background: transparent;
-  border: 2px solid var(--border);
+  background: var(--cell-bg);
+  border: 1px solid var(--soft-border);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -693,9 +727,9 @@ a {
 .lesson-button[aria-pressed="true"],
 .lang-button[aria-pressed="true"] {
   font-weight: 700;
-  color: var(--bg);
-  background: var(--fg);
-  border-color: var(--fg);
+  color: var(--button-fg);
+  background: var(--button-bg);
+  border-color: var(--button-bg);
 }
 
 /* The pressed state is also shown with a text check mark, not color alone. */
@@ -710,15 +744,16 @@ a {
   padding: 8px 20px;
   font: inherit;
   font-weight: 700;
-  color: #ffffff;
-  background: #0b4fa8;
-  border: 2px solid #0b4fa8;
+  color: var(--button-fg);
+  background: var(--button-bg);
+  border: 2px solid var(--button-bg);
   border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.35);
   cursor: pointer;
 }
 
 .visualize-button:hover:not([aria-disabled="true"]) {
-  background: #083a7d;
+  background: var(--button-hover);
 }
 
 .visualize-button[aria-disabled="true"] {
@@ -793,9 +828,10 @@ a {
 }
 
 .editor-gutter,
-.editor-input {
+.editor-input,
+.editor-highlight {
   font-family: var(--mono);
-  font-size: 1.05rem;
+  font-size: 0.98rem;
   line-height: 1.6;
   padding: 8px 0;
 }
@@ -807,25 +843,65 @@ a {
   padding-right: 8px;
   text-align: right;
   color: var(--muted);
+  background: var(--code-bg);
   border: 2px solid var(--border);
   border-right: 1px solid var(--rule);
-  border-radius: 6px 0 0 6px;
+  border-radius: 12px 0 0 12px;
   user-select: none;
 }
 
-.editor-input {
-  width: 100%;
-  padding-left: 10px;
-  padding-right: 10px;
-  color: var(--fg);
-  background: var(--panel);
+.editor-field {
+  position: relative;
+  min-width: 0;
+  background: var(--code-bg);
+  border-radius: 0 12px 12px 0;
+}
+
+.editor-input,
+.editor-highlight {
+  padding-left: 12px;
+  padding-right: 12px;
   border: 2px solid var(--border);
   border-left: none;
-  border-radius: 0 6px 6px 0;
-  resize: vertical;
+  border-radius: 0 12px 12px 0;
   white-space: pre;
-  overflow: auto;
   tab-size: 4;
+}
+
+.editor-input {
+  position: relative;
+  display: block;
+  width: 100%;
+  color: transparent;
+  caret-color: var(--fg);
+  background: transparent;
+  resize: vertical;
+  overflow: auto;
+}
+
+.editor-input::selection {
+  color: transparent;
+  background: rgba(59, 130, 246, 0.35);
+}
+
+/* The colored copy of the code, drawn exactly under the textarea's text. */
+.editor-highlight {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--fg);
+  border-color: transparent;
+  pointer-events: none;
+}
+
+@media (forced-colors: active) {
+  .editor-highlight {
+    display: none;
+  }
+  .editor-input {
+    color: CanvasText;
+  }
 }
 
 .editor-input:focus-visible {
@@ -1249,10 +1325,10 @@ a {
 }
 
 .frame-current {
-  border-width: 3px;
-  border-left-width: 8px;
-  border-color: var(--line-current-edge);
-  background: var(--line-current-bg);
+  border-width: 2px;
+  border-left-width: 6px;
+  border-color: var(--frame-current-edge);
+  background: var(--frame-current-bg);
 }
 
 .frame-status {
@@ -1387,9 +1463,9 @@ a {
 .example-button {
   min-height: 40px;
   padding: 6px 14px;
-  border: 2px solid var(--border);
+  border: 1px solid var(--soft-border);
   border-radius: 999px;
-  background: transparent;
+  background: var(--cell-bg);
   color: var(--fg);
   font: inherit;
   font-family: var(--mono);
@@ -1398,9 +1474,9 @@ a {
 }
 
 .example-button[aria-pressed="true"] {
-  background: var(--fg);
-  color: var(--panel);
-  border-color: var(--fg);
+  background: var(--button-bg);
+  color: var(--button-fg);
+  border-color: var(--button-bg);
 }
 
 .example-button[aria-pressed="true"]::before {
@@ -1528,4 +1604,242 @@ a {
   font-family: var(--mono);
   font-size: 0.9rem;
   overflow-wrap: anywhere;
+}
+
+/* Syntax colors (see components/highlight.ts) */
+.tok-keyword {
+  color: var(--syn-keyword);
+  font-weight: 600;
+}
+.tok-function {
+  color: var(--syn-function);
+}
+.tok-class {
+  color: var(--syn-class);
+}
+.tok-builtin {
+  color: var(--syn-builtin);
+}
+.tok-constant {
+  color: var(--syn-constant);
+}
+.tok-self {
+  color: var(--syn-self);
+  font-style: italic;
+}
+.tok-string {
+  color: var(--syn-string);
+}
+.tok-number {
+  color: var(--syn-number);
+}
+.tok-comment {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+
+@media (forced-colors: active) {
+  [class^="tok-"] {
+    color: CanvasText;
+  }
+}
+
+/* Workspace pages (a problem, Your code): four panels. On wide screens they
+   fit the window: problem and step-through on the left, code and tests (or
+   output) on the right, each scrolling on its own. */
+.page-wide {
+  max-width: 1640px;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.workspace > .panel {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 16px 18px;
+}
+
+@media (min-width: 1000px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "problem code" "visual code" "visual tests";
+    /* The top-left panel is only as tall as it needs (up to 40%). */
+    grid-template-rows: fit-content(40%) minmax(0, 1fr) minmax(0, 1.3fr);
+    height: calc(100dvh - 112px);
+    min-height: 600px;
+  }
+  .ws-problem {
+    grid-area: problem;
+  }
+  /* Your code: the output panel needs less room than a problem's tests. */
+  .workspace-playground {
+    grid-template-rows: fit-content(40%) minmax(0, 1fr) minmax(0, 0.45fr);
+  }
+  .ws-code {
+    grid-area: code;
+    display: flex;
+    flex-direction: column;
+  }
+  .ws-tests {
+    grid-area: tests;
+  }
+  .ws-visual {
+    grid-area: visual;
+  }
+  /* The code fills its panel. */
+  .ws-code > .code-view,
+  .ws-code > .editor,
+  .ws-code > div > .editor {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .ws-code > .code-view {
+    overflow: auto;
+  }
+  .ws-code > div:has(> .editor) {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .ws-code .editor {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .ws-code .editor-input {
+    height: 100%;
+    resize: none;
+  }
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.panel-head h2 {
+  margin: 0;
+}
+
+.panel-head .toolbar {
+  margin: 0;
+}
+
+.panel-head .visualize-button {
+  margin-left: 0;
+}
+
+.problem-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.problem-title:focus {
+  outline: none;
+}
+
+.problem-title:focus-visible {
+  outline: 3px solid var(--focus);
+}
+
+.ws-problem .subheading:first-of-type {
+  margin-top: 14px;
+}
+
+/* Two-way switch: your run or the correct one. */
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: var(--cell-bg);
+  border: 1px solid var(--soft-border);
+}
+
+.segmented button {
+  min-height: 38px;
+  padding: 4px 14px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.segmented button[aria-pressed="true"] {
+  color: var(--button-fg);
+  background: var(--button-bg);
+}
+
+.segmented button[aria-pressed="true"]::before {
+  content: "✓ ";
+}
+
+@media (forced-colors: active) {
+  .segmented button[aria-pressed="true"] {
+    border: 2px solid Highlight;
+  }
+}
+
+.ws-visual .viewer-title {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.ws-visual .timeline {
+  margin-top: 4px;
+}
+
+/* Code lines never wrap (long lines scroll sideways), and the next-line label
+   stays in view at the right edge. Ligatures are off so `->` and `!=` look
+   exactly like what the student typed. */
+.code-lines {
+  min-width: max-content;
+}
+
+.code-line {
+  flex-wrap: nowrap;
+}
+
+.line-label {
+  position: sticky;
+  right: 8px;
+  margin-left: auto;
+}
+
+code,
+pre,
+.code-lines,
+.editor-input,
+.editor-highlight,
+.editor-gutter {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+/* Previous / Next stay at the top of the step-through panel while it scrolls. */
+@media (min-width: 1000px) {
+  .ws-visual .timeline {
+    position: sticky;
+    top: -16px;
+    z-index: 2;
+    margin: 0 -18px;
+    padding: 10px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--rule);
+  }
 }

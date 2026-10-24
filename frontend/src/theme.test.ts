@@ -82,5 +82,51 @@ for (const scope of ["light", "dark"] as const) {
     it("the current nav link (accent-fg on accent) reaches 4.5:1", () => {
       expect(contrast(parseColor(t["accent-fg"]!).rgb, parseColor(t["accent"]!).rgb)).toBeGreaterThanOrEqual(4.5);
     });
+
+    it("filled buttons (button-fg on button-bg) and line labels (label-fg on label-bg) reach 4.5:1", () => {
+      expect(contrast(parseColor(t["button-fg"]!).rgb, parseColor(t["button-bg"]!).rgb)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(parseColor(t["label-fg"]!).rgb, parseColor(t["label-bg"]!).rgb)).toBeGreaterThanOrEqual(4.5);
+    });
+
+    // Python syntax colors: keywords purple, strings green, and so on. Each
+    // must stay readable on the code background and on the highlighted line.
+    const syntax = ["fg", "muted", "syn-keyword", "syn-function", "syn-class", "syn-builtin", "syn-constant", "syn-self", "syn-string", "syn-number", "syn-comment"];
+    it.each(syntax)("--%s reaches 4.5:1 on the code background and the current line", (name) => {
+      const code = parseColor(t["code-bg"]!).rgb;
+      const fg = parseColor(t[name]!).rgb;
+      expect(contrast(fg, code), `${name} on code`).toBeGreaterThanOrEqual(4.5);
+      for (const line of ["line-current-bg", "line-error-bg"]) {
+        expect(contrast(fg, blend(parseColor(t[line]!), code)), `${name} on ${line}`).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it("keywords are purple", () => {
+      expect(hue(parseColor(t["syn-keyword"]!).rgb)).toBeGreaterThanOrEqual(255);
+      expect(hue(parseColor(t["syn-keyword"]!).rgb)).toBeLessThanOrEqual(300);
+    });
+
+    it("the next line to run is marked in blue, not yellow", () => {
+      for (const name of ["line-current-edge", "label-bg", "frame-current-edge"]) {
+        const h = hue(parseColor(t[name]!).rgb);
+        expect(h, name).toBeGreaterThanOrEqual(200);
+        expect(h, name).toBeLessThanOrEqual(240);
+      }
+    });
   });
 }
+
+function hue([r, g, b]: RGB): number {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) return 0;
+  const d = max - min;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+}
+
+describe("fonts", () => {
+  it("uses Inter for text and JetBrains Mono for code, with system fallbacks", () => {
+    expect(css).toMatch(/--sans: "Inter Variable", [^;]*system-ui/);
+    expect(css).toMatch(/--mono: "JetBrains Mono Variable", [^;]*monospace/);
+  });
+});

@@ -97,6 +97,30 @@ async function visualize(code: string, result: TraceResult) {
   });
 }
 
+// ---- Layout ----------------------------------------------------------------------
+
+describe("Your code page layout", () => {
+  const panelNames = () =>
+    [...document.querySelectorAll(".workspace > section")].map((s) => document.getElementById(s.getAttribute("aria-labelledby")!)?.textContent);
+
+  it("uses the problem page's four panels: lessons, code, output, step-through", () => {
+    render(<App />);
+    expect(panelNames()).toEqual(["Your code", "Loop: adding up a list", "Output", "Step through"]);
+    const steps = screen.getByRole("region", { name: "Step through" });
+    // The step controls and variables sit beside the code, not under it.
+    expect(within(steps).getByRole("slider")).toBeTruthy();
+    expect(within(steps).getByRole("button", { name: "Next" })).toBeTruthy();
+    expect(steps.querySelector("table.vars, .empty")).toBeTruthy();
+    const code = screen.getByRole("region", { name: "Loop: adding up a list" });
+    expect(code.querySelector(".code-line.current")).toBeTruthy();
+    expect(within(code).queryByRole("slider")).toBeNull();
+    next();
+    next();
+    const out = screen.getByRole("region", { name: "Output" });
+    expect(out.textContent).toMatch(/Nothing printed yet|\d/);
+  });
+});
+
 // ---- Level 1 -------------------------------------------------------------------
 
 describe("loop lesson (plan.md acceptance)", () => {

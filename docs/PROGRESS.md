@@ -159,6 +159,7 @@ Decisions (2026-10-24):
 | 11 | Three-level AI help (hint, explanation, possible fix) | done (live Gemini wording checked in stage 13) |
 | 12 | Mistake categories and saved sessions | done |
 | 13 | Live Gemini test | done |
+| 14 | Side-by-side workspace, syntax colors, new palette and fonts | done |
 
 ### Stage 7: Claude → Gemini
 - **Docs checked first:** Google's quickstart, text generation and models pages,
@@ -500,3 +501,42 @@ browser bundle. Recommendation: rotate it, since it was pasted into chat.
   answered in 1.1 s and `/api/explain` in 1.8 s with tutor text ("The total
   variable has been updated to 3 because we added the first number from the
   list...").
+
+### Stage 14: side-by-side workspace, syntax colors, new look
+Your feedback: the editor was bland, stepping meant scrolling down past the
+code, and the yellow highlight looked bad. Tests first for each part (red,
+then green):
+- **Syntax colors** (`components/highlight.ts`, 7 tests): a small Python
+  highlighter for keywords (purple, as asked), def and class names, calls,
+  built-ins, `self`, strings (including triple-quoted ones across lines),
+  numbers, constants and comments. It never changes text: every line's tokens
+  join back to the line, checked on every lesson and reference solution.
+- **Colored editor and code view** (`SyntaxColors.test.tsx`): the editor is
+  still a plain labeled textarea (its text is transparent). A colored copy
+  of the code sits under it, hidden from screen readers; forced-colors mode
+  falls back to the plain textarea. The step view colors each line and keeps
+  the "Next line to run" label. Checked in the browser: the colored layer and
+  the textarea have the same box, padding and font.
+- **Layout** (problem page tests, `layout.test.ts`): four panels like your
+  sketch. On screens at least 1000 px wide: the problem (top left) and the
+  step-through (bottom left), the code (top right) and the tests (bottom
+  right). They fit the window, and each panel scrolls on its own. After Run,
+  the code panel shows the run's code with the next line marked, next to the
+  step controls; Edit code brings the editor back. The correct solution no
+  longer sits beside yours: a "Your solution / Correct solution" switch
+  changes both panels, each run keeps its own step, and the arrow keys step
+  the run on screen. Focus moves to the switch when it appears. The DOM order
+  (and the phone order) is problem, code, tests, step-through. Your code page
+  uses the same layout, with an Output panel.
+- **Palette and fonts** (`theme.test.ts`): a dark navy, blue and purple palette
+  from your mockup, and a light version. The next line and the current
+  call-stack frame are blue (the tests check their hue), not yellow. Every
+  syntax color reaches 4.5:1 on the code background and on the highlighted
+  line, in both themes. Fonts are Inter and JetBrains Mono, self-hosted
+  (`@fontsource-variable`, no font-service request), with code ligatures off
+  so `->` looks the way it was typed.
+- **Browser check** (1440x900 dark and light, 375 px phone): the panels sit
+  side by side without page scroll and stack on a phone with no sideways
+  scroll. Run, stepping, the correct-solution switch and the arrow keys
+  work. The problem statement panel scrolls when the statement is long.
+- **Checks:** all green.

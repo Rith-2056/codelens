@@ -86,7 +86,7 @@ export default function App() {
           ))}
         </nav>
       </header>
-      <main className="page">{page}</main>
+      <main className={route.page === "problem" || route.page === "playground" ? "page page-wide" : "page"}>{page}</main>
     </div>
   );
 }

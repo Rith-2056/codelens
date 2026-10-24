@@ -22,7 +22,9 @@ import { onTracerStatus, preloadTracer, runTrace } from "../worker/traceClient";
 type Mode = "edit" | "step";
 
 // The playground: visualize any Python program, starting from the Level 1
-// examples. (This was the whole app before pages existed.)
+// examples. (This was the whole app before pages existed.) Same layout as a
+// problem page: lessons and the step-through on the left, the code and its
+// output on the right.
 export default function Playground() {
   const [state, dispatch] = useReducer(runReducer, "loop", initialRunState);
   const [mode, setMode] = useState<Mode>("step");
@@ -125,37 +127,43 @@ export default function Playground() {
   const template =
     step && traced ? explainStep(index > 0 ? steps[index - 1] : undefined, step, lang, traced.code) : undefined;
 
+  const stepping = !showEditor && traced !== null && step !== undefined;
+
   return (
     <>
-      <div className="page-head">
-        <h1 tabIndex={-1}>Your code</h1>
-        <p>Write any Python program, then watch it run one step at a time.</p>
-      </div>
-      <div className="layout">
-        <section className="panel" aria-labelledby="code-heading">
-          <h2 id="code-heading">{edited ? `Your code (from the ${lesson.short} lesson)` : lesson.title}</h2>
+      <div className="workspace workspace-playground">
+        <section className="panel ws-problem" aria-labelledby="playground-title">
+          <h1 id="playground-title" className="problem-title" tabIndex={-1}>
+            Your code
+          </h1>
+          <p className="hint">Write any Python program, then watch it run one step at a time.</p>
           <LessonPicker lessons={lessons} current={state.lessonId} onPick={pickLesson} lang={lang} />
+        </section>
 
-          <div className="toolbar">
-            {traced && steps.length > 0 && (
-              <button type="button" className="tool-button" ref={editToggleRef} onClick={toggleMode}>
-                {showEditor ? "Show steps" : "Edit code"}
+        <section className="panel ws-code" aria-labelledby="code-heading">
+          <div className="panel-head">
+            <h2 id="code-heading">{edited ? `Your code (from the ${lesson.short} lesson)` : lesson.title}</h2>
+            <div className="toolbar">
+              {traced && steps.length > 0 && (
+                <button type="button" className="tool-button" ref={editToggleRef} onClick={toggleMode}>
+                  {showEditor ? "Show steps" : "Edit code"}
+                </button>
+              )}
+              {edited && (
+                <button type="button" className="tool-button" onClick={() => pickLesson(state.lessonId)}>
+                  Reset code
+                </button>
+              )}
+              <button
+                type="button"
+                className="visualize-button"
+                onClick={visualize}
+                aria-disabled={!visualizeOk}
+                aria-describedby="run-status"
+              >
+                {busy ? "Running…" : "Visualize"}
               </button>
-            )}
-            {edited && (
-              <button type="button" className="tool-button" onClick={() => pickLesson(state.lessonId)}>
-                Reset code
-              </button>
-            )}
-            <button
-              type="button"
-              className="visualize-button"
-              onClick={visualize}
-              aria-disabled={!visualizeOk}
-              aria-describedby="run-status"
-            >
-              {busy ? "Running…" : "Visualize"}
-            </button>
+            </div>
           </div>
 
           <div id="run-status">
@@ -163,10 +171,7 @@ export default function Playground() {
           </div>
 
           {showEditor ? (
-            <div
-              onFocus={() => (editorHadFocus.current = true)}
-              onBlur={() => (editorHadFocus.current = false)}
-            >
+            <div onFocus={() => (editorHadFocus.current = true)} onBlur={() => (editorHadFocus.current = false)}>
               <Editor
                 ref={editorRef}
                 code={state.code}
@@ -175,72 +180,59 @@ export default function Playground() {
               />
             </div>
           ) : (
-            traced && (
-              <>
-                <CodeView source={traced.code} step={step} />
-                <Timeline index={index} total={steps.length} onIndexChange={(i) => goToStep(i)} />
-                <Scrubber
-                  index={index}
-                  total={steps.length}
-                  line={step?.line ?? 1}
-                  onScrub={(i) => goToStep(i, true)}
-                />
-                <JumpToChange
-                  key={traced.traceId}
-                  steps={steps}
-                  index={index}
-                  names={names}
-                  onJump={(i) => goToStep(i)}
-                />
-                {errorIndex >= 0 && (
-                  // Stays mounted (aria-disabled at the error) so focus is not lost.
-                  <button
-                    type="button"
-                    className="tool-button jump-button"
-                    aria-disabled={index === errorIndex}
-                    onClick={() => goToStep(errorIndex)}
-                  >
-                    {index === errorIndex ? "At the error" : "Go to the error"} (step {errorIndex + 1})
-                  </button>
-                )}
-                {traced.trace.truncated && (
-                  <p className="hint">Some values or output were too long, so CodeLens shortened them.</p>
-                )}
-                <p className="hint">Tip: use the Left and Right arrow keys to step, or the slider for long runs.</p>
-              </>
-            )
+            traced && <CodeView source={traced.code} step={step} />
           )}
         </section>
 
-        <section className="panel" aria-labelledby="vars-heading">
-          <h2 id="vars-heading">Variables</h2>
-          {!showEditor && traced && step ? (
+        <section className="panel ws-tests" aria-labelledby="output-heading">
+          <h2 id="output-heading">Output</h2>
+          {stepping ? (
+            step.stdout ? (
+              <pre className="output">{step.stdout}</pre>
+            ) : (
+              <p className="empty">Nothing printed yet.</p>
+            )
+          ) : (
+            <p className="empty">What your program prints shows here as you step through it.</p>
+          )}
+        </section>
+
+        <section className="panel ws-visual" aria-labelledby="visual-heading">
+          <div className="panel-head">
+            <h2 id="visual-heading">Step through</h2>
+            <div className="lang-toggle" role="group" aria-label="Explanation language">
+              <button type="button" className="lang-button" aria-pressed={lang === "en"} onClick={() => setLang("en")} lang="en">
+                English
+              </button>
+              <button type="button" className="lang-button" aria-pressed={lang === "es"} onClick={() => setLang("es")} lang="es">
+                Español
+              </button>
+            </div>
+          </div>
+          {stepping ? (
             <>
-              <p className="hint">Values right now, before the highlighted line runs.</p>
-              <Variables current={step.locals} previous={prevStep?.locals} heap={heap} prevHeap={prevStep?.heap ?? {}} />
-              <DataStructures items={structures} locals={step.locals} heap={heap} line={lineText} frames={framesOf(step)} />
-              <CallStack step={step} />
-
-              <h3 className="subheading">Output so far</h3>
-              {step.stdout ? (
-                <pre className="output">{step.stdout}</pre>
-              ) : (
-                <p className="empty">Nothing printed yet.</p>
+              <Timeline index={index} total={steps.length} onIndexChange={(i) => goToStep(i)} />
+              <Scrubber index={index} total={steps.length} line={step.line} onScrub={(i) => goToStep(i, true)} />
+              <JumpToChange key={traced.traceId} steps={steps} index={index} names={names} onJump={(i) => goToStep(i)} />
+              {errorIndex >= 0 && (
+                // Stays mounted (aria-disabled at the error) so focus is not lost.
+                <button
+                  type="button"
+                  className="tool-button jump-button"
+                  aria-disabled={index === errorIndex}
+                  onClick={() => goToStep(errorIndex)}
+                >
+                  {index === errorIndex ? "At the error" : "Go to the error"} (step {errorIndex + 1})
+                </button>
               )}
+              {traced.trace.truncated && (
+                <p className="hint">Some values or output were too long, so CodeLens shortened them.</p>
+              )}
+              <p className="hint">Tip: use the Left and Right arrow keys to step, or the slider for long runs.</p>
 
-              <div className="explain-head">
-                <h3 className="subheading" id="explain-heading">
-                  What is happening
-                </h3>
-                <div className="lang-toggle" role="group" aria-label="Explanation language">
-                  <button type="button" className="lang-button" aria-pressed={lang === "en"} onClick={() => setLang("en")} lang="en">
-                    English
-                  </button>
-                  <button type="button" className="lang-button" aria-pressed={lang === "es"} onClick={() => setLang("es")} lang="es">
-                    Español
-                  </button>
-                </div>
-              </div>
+              <h3 className="subheading" id="explain-heading">
+                What is happening
+              </h3>
               <Explanation
                 steps={steps}
                 index={index}
@@ -249,12 +241,17 @@ export default function Playground() {
                 codeHash={traced.trace.codeHash}
                 traceId={traced.traceId}
               />
+              <DataStructures items={structures} locals={step.locals} heap={heap} line={lineText} frames={framesOf(step)} />
+              <h3 className="subheading">Variables</h3>
+              <p className="hint">Values right now, before the highlighted line runs.</p>
+              <Variables current={step.locals} previous={prevStep?.locals} heap={heap} prevHeap={prevStep?.heap ?? {}} />
+              <CallStack step={step} />
             </>
           ) : (
             <p className="empty">
               {traced && steps.length > 0
-                ? "Choose Show steps to see the variables."
-                : "Click Visualize to run your code and see its variables here."}
+                ? "Choose Show steps to step through your code here."
+                : "Click Visualize to run your code and step through it here."}
             </p>
           )}
         </section>

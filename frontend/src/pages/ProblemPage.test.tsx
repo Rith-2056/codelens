@@ -1,6 +1,6 @@
 // The problem page: write a class Solution, run it on an example, see the
-// verdict, step through your run, and (on request) the correct solution next
-// to it. The worker is mocked; its answers are realistic shapes.
+// verdict, step through your run with the code beside it, and (on request)
+// the correct solution's run. The worker is mocked; its answers are realistic shapes.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import axe from "axe-core";
@@ -56,13 +56,55 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const editor = () => screen.getByRole("textbox", { name: /your solution/i }) as HTMLTextAreaElement;
+/** The editor. After a run the code panel shows the run's code, so open the editor first. */
+function editor() {
+  const edit = screen.queryByRole("button", { name: "Edit code" });
+  if (edit) fireEvent.click(edit);
+  return screen.getByRole("textbox", { name: /your solution/i }) as HTMLTextAreaElement;
+}
+const currentLine = (panel: HTMLElement) =>
+  within(panel)
+    .getAllByRole("listitem")
+    .find((li) => li.getAttribute("aria-current") === "step")!;
+const stepOf = (r: HTMLElement) => within(r).getByRole("slider").getAttribute("aria-valuetext")!.split(",")[0];
 async function run() {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
   });
   await screen.findByRole("region", { name: "Your solution's run" });
 }
+
+describe("problem page layout", () => {
+  const panelNames = () =>
+    [...document.querySelectorAll(".workspace > section")].map((s) => document.getElementById(s.getAttribute("aria-labelledby")!)?.textContent);
+
+  it("has four panels in reading order: problem, code, tests, step-through", () => {
+    render(<ProblemPage problem={twoSum} />);
+    expect(panelNames()).toEqual(["1. Two Sum", "Your solution", "Test your solution", "Step through"]);
+    const steps = screen.getByRole("region", { name: "Step through" });
+    expect(steps.textContent).toMatch(/Run or Submit your solution to step through it here\./);
+  });
+
+  it("after a run, the code panel shows the run's code and follows the steps", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    const typed = editor().value;
+    await run();
+    const code = screen.getByRole("region", { name: "Your solution" });
+    expect(within(code).queryByRole("textbox")).toBeNull();
+    expect(currentLine(code).textContent).toContain(`${fixture.trace.steps[0]!.line}`);
+    const mine = screen.getByRole("region", { name: "Your solution's run" });
+    const next = fixture.trace.steps.findIndex((s) => s.line !== fixture.trace.steps[0]!.line);
+    fireEvent.change(within(mine).getByRole("slider"), { target: { value: String(next) } });
+    expect(currentLine(code).textContent).toMatch(new RegExp(`^\\D*${fixture.trace.steps[next]!.line}\\D`));
+
+    // Edit code brings the editor back with the same code; the run stays until the code changes.
+    fireEvent.click(within(code).getByRole("button", { name: "Edit code" }));
+    expect((within(code).getByRole("textbox") as HTMLTextAreaElement).value).toBe(typed);
+    expect(screen.getByRole("region", { name: "Your solution's run" })).toBeTruthy();
+    fireEvent.click(within(code).getByRole("button", { name: "Show steps" }));
+    expect(within(code).queryByRole("textbox")).toBeNull();
+  });
+});
 
 describe("problem page", () => {
   it("starts the editor with the class Solution stub", () => {
@@ -112,6 +154,16 @@ describe("problem page", () => {
       fireEvent.click(screen.getByRole("button", { name: /show the correct solution/i }));
     });
     const ref = await screen.findByRole("region", { name: "Correct solution's run" });
+    // One run is on screen at a time, with its code in the code panel.
+    expect(screen.queryByRole("region", { name: "Your solution's run" })).toBeNull();
+    const which = screen.getByRole("group", { name: "Which run to show" });
+    expect(within(which).getByRole("button", { name: "Correct solution" }).getAttribute("aria-pressed")).toBe("true");
+    expect(within(which).getByRole("button", { name: "Your solution" }).getAttribute("aria-pressed")).toBe("false");
+    // The button that was clicked is gone, so focus moves to the switch.
+    expect(document.activeElement).toBe(within(which).getByRole("button", { name: "Correct solution" }));
+    const code = screen.getByRole("region", { name: "Correct solution" });
+    expect(code.textContent).toContain("class Solution");
+    expect(currentLine(code).textContent).toMatch(/Next line to run/);
     // Example 1's reference run comes from the bundled fixture, not the worker.
     expect(tracePractice).not.toHaveBeenCalledWith("two-sum", null, expect.anything());
     expect(within(ref).getByRole("slider").getAttribute("aria-valuetext")).toBe(
@@ -129,18 +181,24 @@ describe("problem page", () => {
     await waitFor(() => expect(tracePractice).toHaveBeenCalledWith("two-sum", null, [[4, 4], 8]));
   });
 
-  it("arrow keys step only the viewer that has focus", async () => {
+  it("arrow keys step the run on screen, and each run keeps its own step", async () => {
     render(<ProblemPage problem={twoSum} />);
     await run();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /show the correct solution/i }));
     });
-    const mine = screen.getByRole("region", { name: "Your solution's run" });
     const ref = await screen.findByRole("region", { name: "Correct solution's run" });
-    const stepOf = (r: HTMLElement) => within(r).getByRole("slider").getAttribute("aria-valuetext")!.split(",")[0];
-    fireEvent.keyDown(within(mine).getByRole("button", { name: "Next" }), { key: "ArrowRight" });
-    expect(stepOf(mine)).toBe("Step 2 of " + fixture.trace.steps.length);
-    expect(stepOf(ref)).toBe("Step 1 of " + fixture.trace.steps.length);
+    const total = fixture.trace.steps.length;
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    expect(stepOf(ref)).toBe(`Step 2 of ${total}`);
+    fireEvent.click(screen.getByRole("button", { name: "Your solution" }));
+    const mine = screen.getByRole("region", { name: "Your solution's run" });
+    expect(stepOf(mine)).toBe(`Step 1 of ${total}`);
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    fireEvent.keyDown(document.body, { key: "ArrowRight" });
+    expect(stepOf(mine)).toBe(`Step 3 of ${total}`);
+    fireEvent.click(screen.getByRole("button", { name: "Correct solution" }));
+    expect(stepOf(screen.getByRole("region", { name: "Correct solution's run" }))).toBe(`Step 2 of ${total}`);
   });
 
   it("hides the Solution object's `self` from the variables", async () => {

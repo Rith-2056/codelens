@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { JsonValue, TraceResult } from "../types/trace";
 import type { Lang } from "../explain";
+import CodeView from "../components/CodeView";
 import Editor from "../components/Editor";
 import HelpPanel from "../components/HelpPanel";
-import StepViewer from "../components/StepViewer";
+import StepViewer, { useStepper } from "../components/StepViewer";
 import {
   counterexampleMessage,
   formatInput,
@@ -48,7 +49,13 @@ let runCounter = 0;
 // - Run: one input, with a verdict and your run step by step;
 // - Submit: CodeLens searches small inputs for one that proves the solution
 //   wrong and, if it finds one, shows it and steps through your run on it.
-// The correct solution's run shows next to yours only when you ask.
+// The correct solution's run shows only when you ask; then you switch
+// between the two runs.
+//
+// Layout (wide screens): the problem and the step-through on the left, the
+// code and the tests on the right, so the highlighted line and the variables
+// are on screen together. In the DOM (and on phones) the order is problem,
+// code, tests, step-through.
 export default function ProblemPage({ problem }: { problem: Problem }) {
   const [lang, setLang] = useState<Lang>("en");
   const [code, setCode] = useState(() => takePendingCode(problem.slug) ?? starterCode(problem));
@@ -61,11 +68,29 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   const [failure, setFailure] = useState<{ args: JsonValue[]; check: CheckResult; id: number } | null>(null);
   const [showRef, setShowRef] = useState(false);
   const [reference, setReference] = useState<Run | null>(null);
+  /** Which run is on screen once the correct solution is shown. */
+  const [view, setView] = useState<"mine" | "ref">("mine");
+  /** After a run the code panel shows the run's code; Edit code brings the editor back. */
+  const [editing, setEditing] = useState(false);
   const latest = useRef(0);
+  const refSwitch = useRef<HTMLButtonElement>(null);
+  const focusSwitch = useRef(false);
+  const mineStepper = useStepper(mine?.trace ?? null, mine?.id ?? null);
+  const refStepper = useStepper(reference?.trace ?? null, reference?.id ?? null);
+  const viewingRef = showRef && view === "ref";
 
   useEffect(() => {
     preloadTracer().catch(() => {});
   }, []);
+
+  // "Show the correct solution" disappears once pressed, so focus moves to
+  // the switch that replaces it instead of falling to the page.
+  useEffect(() => {
+    if (showRef && focusSwitch.current) {
+      focusSwitch.current = false;
+      refSwitch.current?.focus();
+    }
+  }, [showRef]);
 
   const args = selected.kind === "failing" && failing ? failing : problem.examples[selected.kind === "example" ? selected.index : 0]!.args;
 
@@ -83,6 +108,8 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   function begin(): number {
     const ticket = ++latest.current;
     setRunning(true);
+    setEditing(false);
+    setView("mine");
     setShowRef(false);
     setReference(null);
     setFailure(null);
@@ -180,7 +207,9 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   }
 
   async function revealReference() {
+    focusSwitch.current = true;
     setShowRef(true);
+    setView("ref");
     const ticket = latest.current;
     const ref =
       selected.kind === "example" && selected.index === 0
@@ -189,42 +218,79 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
     if (ticket === latest.current) setReference(ref);
   }
 
+  const codeHeading = viewingRef ? "Correct solution" : "Your solution";
+
   return (
-    <>
-      <div className="page-head">
-        <h1 tabIndex={-1}>
-          {problem.number}. {problem.title}
-        </h1>
-        <p className="problem-meta">
-          <span className={`difficulty difficulty-${problem.difficulty.toLowerCase()}`}>{problem.difficulty}</span>
-          <span className="problem-pattern">{problem.pattern}</span>
-        </p>
-      </div>
-
-      <div className="problem-top">
-        <section className="panel" aria-labelledby="statement-heading">
-          <div className="explain-head">
-            <h2 id="statement-heading">The problem</h2>
-            <div className="lang-toggle" role="group" aria-label="Language">
-              <button type="button" className="lang-button" aria-pressed={lang === "en"} onClick={() => setLang("en")} lang="en">
-                English
-              </button>
-              <button type="button" className="lang-button" aria-pressed={lang === "es"} onClick={() => setLang("es")} lang="es">
-                Español
-              </button>
-            </div>
+    <div className="workspace">
+      <section className="panel ws-problem" aria-labelledby="problem-title">
+        <div className="explain-head">
+          <div>
+            <h1 id="problem-title" className="problem-title" tabIndex={-1}>
+              {problem.number}. {problem.title}
+            </h1>
+            <p className="problem-meta">
+              <span className={`difficulty difficulty-${problem.difficulty.toLowerCase()}`}>{problem.difficulty}</span>
+              <span className="problem-pattern">{problem.pattern}</span>
+            </p>
           </div>
-          <p className="problem-statement" lang={lang}>
-            {problem.statement[lang]}
-          </p>
-          <h3 className="subheading">Write your answer in this shape</h3>
-          <pre className="signature" {...scrollBox("Solution signature")}>
-            <code>{`class Solution:\n    ${problem.signature}`}</code>
-          </pre>
-        </section>
+          <div className="lang-toggle" role="group" aria-label="Language">
+            <button type="button" className="lang-button" aria-pressed={lang === "en"} onClick={() => setLang("en")} lang="en">
+              English
+            </button>
+            <button type="button" className="lang-button" aria-pressed={lang === "es"} onClick={() => setLang("es")} lang="es">
+              Español
+            </button>
+          </div>
+        </div>
+        <h2 className="subheading" id="statement-heading">
+          The problem
+        </h2>
+        <p className="problem-statement" lang={lang}>
+          {problem.statement[lang]}
+        </p>
+        <h3 className="subheading">Write your answer in this shape</h3>
+        <pre className="signature" {...scrollBox("Solution signature")}>
+          <code>{`class Solution:\n    ${problem.signature}`}</code>
+        </pre>
+      </section>
 
-        <section className="panel" aria-labelledby="solution-heading">
-          <h2 id="solution-heading">Your solution</h2>
+      <section className="panel ws-code" aria-labelledby="solution-heading">
+        <div className="panel-head">
+          <h2 id="solution-heading">{codeHeading}</h2>
+          <div className="toolbar">
+            {showRef && (
+              <div className="segmented" role="group" aria-label="Which run to show">
+                <button type="button" aria-pressed={view === "mine"} onClick={() => setView("mine")}>
+                  Your solution
+                </button>
+                <button type="button" ref={refSwitch} aria-pressed={view === "ref"} onClick={() => setView("ref")}>
+                  Correct solution
+                </button>
+              </div>
+            )}
+            {mine && !viewingRef && (
+              <button type="button" className="tool-button" onClick={() => setEditing(!editing)}>
+                {editing ? "Show steps" : "Edit code"}
+              </button>
+            )}
+            {mine && !showRef && (
+              <button type="button" className="tool-button" onClick={revealReference}>
+                Show the correct solution
+              </button>
+            )}
+          </div>
+        </div>
+        {viewingRef ? (
+          reference ? (
+            <CodeView source={reference.program} step={refStepper.step} />
+          ) : (
+            <p className="hint" role="status">
+              Loading the correct solution…
+            </p>
+          )
+        ) : mine && !editing ? (
+          <CodeView source={mine.program} step={mineStepper.step} />
+        ) : (
           <Editor
             code={code}
             onChange={(next) => {
@@ -233,102 +299,115 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
             }}
             labelId="solution-heading"
           />
-          <div className="examples" role="group" aria-label="Examples">
-            {problem.examples.map((ex, k) => (
-              <button
-                key={k}
-                type="button"
-                className="example-button"
-                aria-pressed={selected.kind === "example" && selected.index === k}
-                onClick={() => {
-                  setSelected({ kind: "example", index: k });
-                  clearRun();
-                }}
-              >
-                {formatInput(problem.params, ex.args)}
-              </button>
-            ))}
-            {failing && (
-              <button
-                type="button"
-                className="example-button example-failing"
-                aria-pressed={selected.kind === "failing"}
-                onClick={() => {
-                  setSelected({ kind: "failing" });
-                  clearRun();
-                }}
-              >
-                Failing input: {formatInput(problem.params, failing)}
-              </button>
-            )}
-          </div>
-          <div className="toolbar">
-            <button type="button" className="tool-button" onClick={run} aria-disabled={running}>
-              Run
-            </button>
-            <button type="button" className="visualize-button" onClick={submit} aria-disabled={running}>
-              Submit
-            </button>
-            {running && (
-              <span className="hint" role="status">
-                Checking…
-              </span>
-            )}
-            {mine && !showRef && (
-              <button type="button" className="tool-button" onClick={revealReference}>
-                Show the correct solution
-              </button>
-            )}
-          </div>
-          {message && (
-            <div className={`run-status tone-${message.tone}`} role="status" aria-label="Result">
-              {message.text}
-            </div>
-          )}
-          {failure && (
-            <p className="mistake-note" role="note" aria-label="Likely mistake">
-              <strong>Likely mistake: {MISTAKES[mistakeOf(failure.args, failure.check)].label}.</strong>{" "}
-              {MISTAKES[mistakeOf(failure.args, failure.check)].tip}
-            </p>
-          )}
-        </section>
-      </div>
+        )}
+      </section>
 
-      {failure && (
-        <HelpPanel
-          key={failure.id}
-          request={{
-            lang,
-            problem: { title: problem.title, statement: problem.statement[lang], signature: problem.signature },
-            code,
-            input: formatInput(problem.params, failure.args),
-            got: failure.check.error ? null : formatValue(failure.check.got),
-            expected: formatValue(failure.check.expected),
-            error: failure.check.error,
-          }}
-        />
-      )}
-
-      {mine && (
-        <div className={showRef ? "viewers viewers-two" : "viewers"}>
-          <StepViewer key={mine.id} label="Your solution" program={mine.program} trace={mine.trace} lang={lang} traceId={mine.id} />
-          {showRef &&
-            (reference ? (
-              <StepViewer
-                key={reference.id}
-                label="Correct solution"
-                program={reference.program}
-                trace={reference.trace}
-                lang={lang}
-                traceId={reference.id}
-              />
-            ) : (
-              <p className="hint" role="status">
-                Loading the correct solution…
-              </p>
-            ))}
+      <section className="panel ws-tests" aria-labelledby="tests-heading">
+        <h2 id="tests-heading">Test your solution</h2>
+        <div className="examples" role="group" aria-label="Examples">
+          {problem.examples.map((ex, k) => (
+            <button
+              key={k}
+              type="button"
+              className="example-button"
+              aria-pressed={selected.kind === "example" && selected.index === k}
+              onClick={() => {
+                setSelected({ kind: "example", index: k });
+                clearRun();
+              }}
+            >
+              {formatInput(problem.params, ex.args)}
+            </button>
+          ))}
+          {failing && (
+            <button
+              type="button"
+              className="example-button example-failing"
+              aria-pressed={selected.kind === "failing"}
+              onClick={() => {
+                setSelected({ kind: "failing" });
+                clearRun();
+              }}
+            >
+              Failing input: {formatInput(problem.params, failing)}
+            </button>
+          )}
         </div>
-      )}
-    </>
+        <div className="toolbar">
+          <button type="button" className="tool-button" onClick={run} aria-disabled={running}>
+            Run
+          </button>
+          <button type="button" className="visualize-button" onClick={submit} aria-disabled={running}>
+            Submit
+          </button>
+          {running && (
+            <span className="hint" role="status">
+              Checking…
+            </span>
+          )}
+        </div>
+        {message && (
+          <div className={`run-status tone-${message.tone}`} role="status" aria-label="Result">
+            {message.text}
+          </div>
+        )}
+        {failure && (
+          <p className="mistake-note" role="note" aria-label="Likely mistake">
+            <strong>Likely mistake: {MISTAKES[mistakeOf(failure.args, failure.check)].label}.</strong>{" "}
+            {MISTAKES[mistakeOf(failure.args, failure.check)].tip}
+          </p>
+        )}
+        {failure && (
+          <HelpPanel
+            key={failure.id}
+            request={{
+              lang,
+              problem: { title: problem.title, statement: problem.statement[lang], signature: problem.signature },
+              code,
+              input: formatInput(problem.params, failure.args),
+              got: failure.check.error ? null : formatValue(failure.check.got),
+              expected: formatValue(failure.check.expected),
+              error: failure.check.error,
+            }}
+          />
+        )}
+      </section>
+
+      <section className="panel ws-visual" aria-labelledby="visual-heading">
+        <h2 id="visual-heading">Step through</h2>
+        {!mine ? (
+          <p className="empty">Run or Submit your solution to step through it here. The code panel will show the line that runs next.</p>
+        ) : (
+          <>
+            <div hidden={viewingRef}>
+              <StepViewer
+                key={mine.id}
+                label="Your solution"
+                program={mine.program}
+                trace={mine.trace}
+                lang={lang}
+                traceId={mine.id}
+                stepper={mineStepper}
+                active={!viewingRef}
+              />
+            </div>
+            {showRef && reference && (
+              <div hidden={!viewingRef}>
+                <StepViewer
+                  key={reference.id}
+                  label="Correct solution"
+                  program={reference.program}
+                  trace={reference.trace}
+                  lang={lang}
+                  traceId={reference.id}
+                  stepper={refStepper}
+                  active={viewingRef}
+                />
+              </div>
+            )}
+          </>
+        )}
+      </section>
+    </div>
   );
 }

@@ -5,7 +5,7 @@
 codelens/
   .kiro/steering/   .kiro/specs/   .kiro/hooks/
   docs/plan.md
-  frontend/src/components/   (Editor, Timeline, Variables, Arrays, Explanation, Predict, Narrator)
+  frontend/src/components/   (Editor, CodeView, highlight.ts, StepViewer, Timeline, Variables, Arrays, Explanation, Narrator)
   frontend/src/components/visualizers/   (HashMap, Set, Queue, Graph, Tree, CallStack)
   frontend/src/worker/trace.worker.ts  traceClient.ts
   frontend/src/py/tracer.py  gen_fixtures.py
