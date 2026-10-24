@@ -1507,3 +1507,12 @@ def test_limit_message_states_the_real_step_count():
     result = run("i = 0\nwhile True:\n    i += 1\n")
     assert result["status"] == "limit"
     assert result["message"] == f"Stopped after {len(result['steps'])} steps. Is there a loop that never ends?"
+
+
+def test_fixtures_are_stored_as_compact_json():
+    # The fixtures are bundled into the app as text, so indentation costs real
+    # bytes (it was ~300 KB of the bundle). Store them compact, one line each.
+    for path in sorted(FIXTURES.glob("*.json")):
+        text = path.read_text(encoding="utf-8")
+        compact = json.dumps(json.loads(text), separators=(",", ":"), ensure_ascii=False) + "\n"
+        assert text == compact, f"{path.name} is not compact JSON"

@@ -28,7 +28,7 @@ pre-commit hook enforces it).
 | 2 | Graph and tree visualizers | done |
 | 3 | Acceptance and accessibility pass | done (real screen reader still to do) |
 | 4 | Fix the stale `StackFrame` comment in `trace.ts` | done |
-| 5 | Shrink the bundle | todo |
+| 5 | Shrink the bundle | done |
 | 6 | Live Claude API test | paused: needs your API key |
 
 ### Stage 1: TDD tooling and wave 3 commit
@@ -121,3 +121,21 @@ pre-commit hook enforces it).
   fixture byte-identical.
 - **Checks:** all green (193 pytest, 111 node tests, 37 vitest, typecheck,
   build). The new tests now guard the three contract copies against drift.
+
+### Stage 5: shrink the bundle
+- **Measured first:** the main JS was 723,835 bytes (over Vite's 500 kB
+  warning). The nine fixtures were 482,169 bytes of indented JSON, bundled as
+  text; compact JSON would make them 174,738.
+- **Tests written first, all red:**
+  - `tests/test_tracer.py::test_fixtures_are_stored_as_compact_json`
+  - `scripts/bundle-size.test.mjs`, run by `scripts/check-all.sh` after every
+    build: the main JS is under 500 kB, and all fixtures together are under
+    200 kB
+- **Fix:** `gen_fixtures.py` writes compact JSON; `gen_fixtures.py --all`
+  regenerated all nine fixtures. The data is unchanged (`--check` and every
+  fixture test pass).
+- **Result:** main JS 723,835 → 416,404 bytes; Vite's chunk-size warning is
+  gone. The fixtures are no longer readable by eye; use
+  `python -m json.tool shared/fixtures/<name>.json` to read one.
+- **Checks:** all green (194 pytest, 111 node tests, 37 vitest, 2 bundle-size
+  tests, typecheck, build).

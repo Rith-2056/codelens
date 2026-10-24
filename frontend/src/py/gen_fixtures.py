@@ -7,9 +7,11 @@ Usage (from the repo root):
 
 The lesson sources below must stay byte-for-byte identical to the strings in
 frontend/src/lessons.ts (trailing newline included), or the codeHash will not
-match. The default mode only checks loop.json, never rewriting it. --all (run by the contract hooks when trace.ts changes) rewrites
-every fixture, loop.json included, but only after checking that every trace
-has the fields trace.ts requires; if any is missing it writes nothing.
+match. Fixtures are written as compact JSON, one line each. The default mode
+only checks loop.json, never rewriting it. --all (run by the contract hooks
+when trace.ts changes) rewrites every fixture, loop.json included, but only
+after checking that every trace has the fields trace.ts requires; if any is
+missing it writes nothing.
 """
 
 from __future__ import annotations
@@ -145,12 +147,13 @@ GENERATED = tuple(name for name in LESSONS if name != "loop")
 
 
 def render(result: dict) -> str:
-    # Same top-level key order as loop.json, so the files read alike; any
-    # other keys follow in the tracer's order.
+    # Same top-level key order in every fixture; any other keys follow in the
+    # tracer's order. Compact (one line): the fixtures are bundled into the app
+    # as text, and indentation cost ~300 KB (see scripts/bundle-size.test.mjs).
     order = ["status", "message", "truncated", "codeHash", "steps"]
     ordered = {k: result[k] for k in order if k in result}
     ordered.update({k: v for k, v in result.items() if k not in ordered})
-    return json.dumps(ordered, indent=2, ensure_ascii=False) + "\n"
+    return json.dumps(ordered, separators=(",", ":"), ensure_ascii=False) + "\n"
 
 
 def required_fields(type_name: str) -> list[str]:

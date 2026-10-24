@@ -31,6 +31,7 @@ if grep -q '"test"' frontend/package.json; then
   run "frontend component tests" npm --prefix frontend run -s test
 fi
 run "frontend build"           npm --prefix frontend run -s build
+run "bundle size"              node --test scripts/bundle-size.test.mjs
 if [ -n "${PYODIDE_DIR:-}" ]; then
   run "pyodide parity"         node frontend/src/worker/pyodide-check.mjs "$PYODIDE_DIR"
 fi
