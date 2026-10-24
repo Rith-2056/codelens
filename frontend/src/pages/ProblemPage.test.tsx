@@ -37,6 +37,7 @@ import ProblemPage from "./ProblemPage";
 const twoSum = problemBySlug("two-sum")!;
 
 beforeEach(() => {
+  window.localStorage.clear(); // drafts and sessions start empty in every test
   tracePractice.mockReset();
   checkPractice.mockReset();
   findCounterexample.mockReset();
@@ -163,6 +164,35 @@ describe("Code Visualizer from the problem page", () => {
     fireEvent.change(within(panel).getByRole("slider", { name: "Step" }), { target: { value: String(seenAdded) } });
     expect(within(panel).getByRole("list", { name: "What changed" }).textContent).toMatch(/seen: new dict/);
     expect(panel.querySelector("table.vars")).toBeNull(); // the details live in the visualizer
+  });
+});
+
+describe("your code is kept", () => {
+  beforeEach(() => window.localStorage.clear());
+
+  it("leaving the page and coming back (or reloading) keeps what you typed", () => {
+    const first = render(<ProblemPage problem={twoSum} />);
+    fireEvent.change(editor(), { target: { value: "class Solution:\n    def twoSum(self, nums, target):\n        seen = {}\n" } });
+    first.unmount();
+    render(<ProblemPage problem={twoSum} />);
+    expect(editor().value).toBe("class Solution:\n    def twoSum(self, nums, target):\n        seen = {}\n");
+  });
+
+  it("each problem keeps its own code, and a new problem starts from the stub", () => {
+    const first = render(<ProblemPage problem={twoSum} />);
+    fireEvent.change(editor(), { target: { value: "# two sum draft\n" } });
+    first.unmount();
+    render(<ProblemPage problem={problemBySlug("binary-search")!} />);
+    expect(editor().value).toMatch(/^class Solution:\n {4}def search\(/);
+  });
+
+  it("the code survives Run, the visualizer and Edit code", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    fireEvent.change(editor(), { target: { value: "class Solution:\n    def twoSum(self, nums, target):\n        return [0, 1]\n" } });
+    await run();
+    fireEvent.click(screen.getByRole("button", { name: "Open Code Visualizer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Exit visualizer" }));
+    expect(editor().value).toBe("class Solution:\n    def twoSum(self, nums, target):\n        return [0, 1]\n");
   });
 });
 

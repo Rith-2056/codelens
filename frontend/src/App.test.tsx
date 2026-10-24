@@ -41,6 +41,7 @@ function practiceFixture(slug: string): { program: string; trace: TraceResult } 
 }
 
 beforeEach(() => {
+  window.localStorage.clear(); // drafts start empty in every test
   // The visualizer now lives on its own page (#/playground) since pages were added.
   window.history.replaceState(null, "", "#/playground");
   runTrace.mockReset();
@@ -122,6 +123,20 @@ describe("Your code page layout", () => {
     next();
     const out = screen.getByRole("region", { name: "Output" });
     expect(out.textContent).toMatch(/Nothing printed yet|\d/);
+  });
+});
+
+describe("Your code page keeps your code", () => {
+  it("leaving the page and coming back keeps what you typed", () => {
+    window.localStorage.clear();
+    const first = render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /edit code/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "best = 0\nfor x in [4, 2, 7]:\n    best = max(best, x)\n" } });
+    first.unmount();
+    render(<App />);
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("best = 0\nfor x in [4, 2, 7]:\n    best = max(best, x)\n");
+    expect(screen.getByRole("heading", { level: 2, name: /Your code \(from the Loop lesson\)/ })).toBeTruthy();
+    window.localStorage.clear();
   });
 });
 

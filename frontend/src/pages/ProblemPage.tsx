@@ -17,6 +17,7 @@ import {
 import { formatValue } from "../components/values";
 import { MISTAKES, classifyMistake } from "../components/mistakes";
 import { addSession, takePendingCode } from "../sessions";
+import { clearDraft, loadDraft, saveDraft } from "../drafts";
 import { scrollBox } from "../components/scrollBox";
 import type { Problem } from "../problems";
 import { checkPractice, findCounterexample, preloadTracer, tracePractice } from "../worker/traceClient";
@@ -59,7 +60,7 @@ let runCounter = 0;
 // code, tests, step-through.
 export default function ProblemPage({ problem }: { problem: Problem }) {
   const [lang, setLang] = useState<Lang>("en");
-  const [code, setCode] = useState(() => takePendingCode(problem.slug) ?? starterCode(problem));
+  const [code, setCode] = useState(() => takePendingCode(problem.slug) ?? loadDraft(problem.slug) ?? starterCode(problem));
   const [selected, setSelected] = useState<Selected>({ kind: "example", index: 0 });
   const [failing, setFailing] = useState<JsonValue[] | null>(null);
   const [running, setRunning] = useState(false);
@@ -88,6 +89,12 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   useEffect(() => {
     preloadTracer().catch(() => {});
   }, []);
+
+  // Your code is saved in this browser as you type (see drafts.ts).
+  useEffect(() => {
+    if (code === starterCode(problem)) clearDraft(problem.slug);
+    else saveDraft(problem.slug, code);
+  }, [code, problem]);
 
   // "Show the correct solution" disappears once pressed, so focus moves to
   // the switch that replaces it instead of falling to the page.

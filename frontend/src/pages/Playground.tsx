@@ -13,6 +13,23 @@ import ControlBar from "../visualizer/ControlBar";
 import { stepChanges } from "../visualizer/focus";
 import { explainStep, type Lang } from "../explain";
 import { lessonById, lessons, type LessonId } from "../lessons";
+import { clearDraft, loadDraft, saveDraft } from "../drafts";
+
+const DRAFT = "playground";
+
+/** The lesson and code you left the page with, if any. */
+function restoredState(lessonId: LessonId) {
+  const start = initialRunState(lessonId);
+  try {
+    const saved = JSON.parse(loadDraft(DRAFT) ?? "null") as { lessonId?: unknown; code?: unknown } | null;
+    if (!saved || typeof saved.code !== "string") return start;
+    const lesson = lessons.find((l) => l.id === saved.lessonId);
+    const picked = lesson ? runReducer(start, { type: "pickLesson", lessonId: lesson.id }) : start;
+    return runReducer(picked, { type: "edit", code: saved.code });
+  } catch {
+    return start;
+  }
+}
 import { onTracerStatus, preloadTracer, runTrace } from "../worker/traceClient";
 
 type Mode = "edit" | "step";
@@ -22,7 +39,7 @@ type Mode = "edit" | "step";
 // problem page: lessons and the step-through on the left, the code and its
 // output on the right.
 export default function Playground() {
-  const [state, dispatch] = useReducer(runReducer, "loop", initialRunState);
+  const [state, dispatch] = useReducer(runReducer, "loop", restoredState);
   const [mode, setMode] = useState<Mode>("step");
   const [lang, setLang] = useState<Lang>("en");
   // True while the step scrubber is moving, so the narrator waits for it to settle.
@@ -47,6 +64,12 @@ export default function Playground() {
 
   const lesson = lessonById(state.lessonId);
   const edited = state.code !== lesson.source;
+
+  // Your code is saved in this browser as you type (see drafts.ts).
+  useEffect(() => {
+    if (edited) saveDraft(DRAFT, JSON.stringify({ lessonId: state.lessonId, code: state.code }));
+    else clearDraft(DRAFT);
+  }, [edited, state.lessonId, state.code]);
   const traced = traceOf(state.phase);
   const steps = traced?.trace.steps ?? [];
   const index = Math.min(state.stepIndex, Math.max(0, steps.length - 1));

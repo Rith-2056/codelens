@@ -161,6 +161,7 @@ Decisions (2026-10-24):
 | 13 | Live Gemini test | done |
 | 14 | Side-by-side workspace, syntax colors, new palette and fonts | done |
 | 15 | Code Visualizer mode (focused debugger view) | done |
+| 16 | Your feedback, then a full UX review | in progress |
 
 ### Stage 7: Claude → Gemini
 - **Docs checked first:** Google's quickstart, text generation and models pages,
@@ -616,3 +617,14 @@ down.
   covers long lines, and the tree's text outline is hidden on screen (screen
   readers still get it).
 - **Checks:** all green.
+
+### Stage 16: your feedback, then a full UX review
+**16a: code is never lost, tests first.** In the browser, the code survived
+Run → visualizer → Exit → Edit code. But leaving a page (or reloading) reset
+both the problem page and Your code to the starter code: nothing saved it.
+Now each page's code is saved in this browser as you type (`drafts.ts`, the
+same local-only, never-throws approach as saved sessions). A problem goes back
+to its stub only if you never changed it. On Your code, the lesson you started
+from is restored too. Tests: leaving and returning keeps the code on both
+pages; each problem keeps its own; the code survives Run, the visualizer and
+Edit code; junk, oversized or blocked storage is ignored.
