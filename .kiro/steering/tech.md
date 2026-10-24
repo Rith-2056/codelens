@@ -12,7 +12,7 @@
 - Preload the worker on page open; show precomputed fixture traces instantly
   while Python loads.
 
-## FROZEN shared contract
+## FROZEN shared contract (v1, current)
 This contract is frozen. Owned by the integrator in
 `frontend/src/types/trace.ts`. Do not change field names, types, or shapes.
 
@@ -41,17 +41,31 @@ type TraceResult = {
 };
 ```
 
+### Planned: contract v2
+Specified in `.kiro/specs/ds-visualizers/design.md`. v2 keeps every v1 field
+and adds `objects` and `stack` to each step and `version: 2` to the result.
+Lists, tuples, dicts, sets, deques, and student-defined objects become
+references (`{"__ref__": "o1"}`) into `objects`. Only the integrator lands it
+(ds-visualizers task 1). Until then, build against v1 and treat v2 as a
+proposal.
+
 ## Tracer rules
 - Use `sys.settrace` for call, line, return, exception events. Line events fire
   BEFORE the line runs: the UI says "Next line to run".
 - Compile with filename `codelens_user.py`; record only frames from that
   filename.
-- Snapshot locals: primitives and short lists/dicts/tuples of primitives;
-  anything else becomes a type-only placeholder. Never call arbitrary repr.
+- Snapshot locals without running student code (exact type checks only).
+  Contract v1: primitives and short lists/dicts/tuples of primitives; anything
+  else becomes a type-only placeholder. Contract v2: containers and
+  student-defined objects become shared object snapshots, as in the spec.
+  Never call arbitrary repr.
 - Capture stdout with a byte cap.
-- MAX_STEPS = 300 is the main infinite-loop guard. Raise the limit as a
+- MAX_STEPS = 2000 is the main infinite-loop guard. Raise the limit as a
   subclass of BaseException (not Exception) so student `except Exception`
-  cannot swallow it.
+  cannot swallow it. The limit message states the number of steps actually
+  recorded.
+- `while True: pass` must still end as "limit" in under 2 seconds, in CPython
+  and in Pyodide.
 - Replace `input()` with a stub that raises a friendly error.
 - SyntaxError becomes a single error state; runtime exceptions end the trace
   with a terminal error step.

@@ -1,8 +1,9 @@
 # Pedagogy
 
-CodeLens teaches by showing a beginner their own program's real execution, one
-accurate step at a time. Every teaching choice below protects trust in that
-trace and keeps the experience usable for the target learners.
+CodeLens teaches by showing a learner their own program's real execution, one
+accurate step at a time, on a path from their first loop to their first
+interview. Every teaching choice below protects trust in that trace and keeps
+the experience usable for the target learners.
 
 ## Grounded in the real trace
 - Explanations describe only what actually happened in the recorded snapshots.
@@ -10,6 +11,23 @@ trace and keeps the experience usable for the target learners.
   yet; say so ("Next line to run").
 - Deterministic template text is the source of truth. Optional LLM text only
   replaces it when available and only if it passes the no-invented-number check.
+
+## From first loop to first interview
+- Level 1 (loop, branch, function) teaches how code runs. Level 2 (hash map,
+  set, two pointers, BFS, tree recursion, 1D DP) teaches interview patterns.
+- In Level 2, show the data structure, not just the variables: the student
+  should see the key land in the hash map, the pointers move inward, the queue
+  drain, and the call stack grow and shrink.
+- Name the pattern in plain words and tie it to what changed on screen ("the
+  set remembers every number seen so far").
+- Students run their own solution. CodeLens shows what it did; it never judges
+  it against hidden tests or gives a pass/fail verdict.
+
+## Our own words only
+- Write every lesson title, problem statement, and example ourselves, in plain
+  language.
+- Never copy problem text, titles, or examples from LeetCode or any other site.
+  Pattern names ("hash map", "two pointers", "BFS") are fine.
 
 ## Predict-then-reveal
 - Before a step that changes a variable, ask the student to predict the new
@@ -29,16 +47,19 @@ trace and keeps the experience usable for the target learners.
 - Frame errors as normal and fixable, not as failure.
 
 ## Accessibility is a requirement, not a feature
-- aria-live narration announces each step for screen readers.
+- aria-live narration announces each step for screen readers, including what
+  changed inside a data structure ("seen: added key 9").
 - Full keyboard-only flow; no mouse required.
-- High contrast; convey change with text markers (before→after), never color
-  alone.
+- High contrast; convey change with text markers (before→after, "added",
+  "removed", "front", "back", "visited"), never color alone.
+- Every diagram (graph, tree, queue) has a text alternative with the same
+  information, such as a table or nested list.
 - Assume shared school Chromebooks: keep it fast and lightweight, show
   precomputed fixture traces instantly while Python loads.
 
 ## Safe to explore
 - Editing code is encouraged; students learn by changing and re-running.
-- Infinite loops and errors never break the app: MAX_STEPS guards runaway
-  loops, and the editor stays usable after a limit or timeout.
+- Infinite loops and errors never break the app: MAX_STEPS (2000) guards
+  runaway loops, and the editor stays usable after a limit or timeout.
 - Share links let a student or teacher revisit the exact code and step without
   any account or saved data.

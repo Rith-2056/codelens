@@ -858,3 +858,94 @@ def test_hostile_values_in_student_code_are_placeholders():
     assert result["status"] == "ok"
     assert result["steps"][-1]["locals"]["t"] == {"__type__": "Thing"}
     assert result["steps"][-1]["locals"]["done"] is True
+
+
+# -- lesson fixtures (branch, function) ------------------------------------
+# The sources live in gen_fixtures.py and must match frontend/src/lessons.ts
+# byte for byte; regenerate with `.venv/bin/python frontend/src/py/gen_fixtures.py`.
+
+import gen_fixtures  # noqa: E402  (frontend/src/py is on sys.path via conftest)
+
+
+def test_generator_loop_source_matches_loop_lesson():
+    assert gen_fixtures.LESSONS["loop"] == LOOP_LESSON
+
+
+@pytest.mark.parametrize("name", ["loop", "branch", "function"])
+def test_lesson_equals_fixture(name):
+    source = gen_fixtures.LESSONS[name]
+    expected = json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+    assert run(source) == expected
+    assert json.loads(tracer.trace_json(source)) == expected
+    assert expected["codeHash"] == tracer.code_hash(source)
+
+
+def test_branch_fixture_takes_the_if_side():
+    data = json.loads((FIXTURES / "branch.json").read_text(encoding="utf-8"))
+    lines = [s["line"] for s in data["steps"] if s["event"] == "line"]
+    assert 5 not in lines  # the else body never runs
+    assert data["steps"][-1]["stdout"] == "Wear a T-shirt\n"
+
+
+def test_function_fixture_has_call_and_return_value():
+    data = json.loads((FIXTURES / "function.json").read_text(encoding="utf-8"))
+    add_steps = [s for s in data["steps"] if s["functionName"] == "add"]
+    assert add_steps[0]["event"] == "call" and add_steps[0]["depth"] == 1
+    assert add_steps[-1]["event"] == "return" and add_steps[-1]["returnValue"] == 5
+    assert data["steps"][-1]["stdout"] == "5\n"
+
+
+# -- generator close() (CPython / Pyodide parity) ---------------------------
+
+
+def test_closing_a_suspended_generator_leaves_no_orphan_call_step():
+    # CPython 3.13.15 throws GeneratorExit into g (call/exception/return
+    # events); Pyodide's 3.13.2 fires none. Both must give this trace.
+    result = run(src("""
+        def g():
+            yield 1
+            yield 2
+
+        it = g()
+        print(next(it))
+        it.close()
+    """))
+    assert result["status"] == "ok"
+    g_steps = steps_for(result, "g-1")
+    assert [s["event"] for s in g_steps] == ["call", "line", "return"]
+    assert result["steps"][-1]["event"] == "return"
+    assert result["steps"][-1]["frameId"] == "module"
+
+
+def test_abandoned_generator_in_for_break_leaves_no_orphan_call_step():
+    result = run(src("""
+        def g():
+            yield 1
+            yield 2
+
+        for v in g():
+            break
+        print(v)
+    """))
+    assert result["status"] == "ok"
+    assert [s["event"] for s in steps_for(result, "g-1")] == ["call", "line", "return"]
+    assert result["steps"][-1]["stdout"] == "1\n"
+
+
+def test_closing_generator_with_finally_keeps_its_steps():
+    result = run(src("""
+        def g():
+            try:
+                yield 1
+            finally:
+                print("bye")
+
+        it = g()
+        next(it)
+        it.close()
+    """))
+    assert result["status"] == "ok"
+    g_steps = steps_for(result, "g-1")
+    assert [s["event"] for s in g_steps][-2:] == ["call", "line"]
+    assert g_steps[-1]["line"] == 5
+    assert result["steps"][-1]["stdout"] == "bye\n"

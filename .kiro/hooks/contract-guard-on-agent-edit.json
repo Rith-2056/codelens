@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Frozen contract guard (agent edit)",
+      "trigger": "PostToolUse",
+      "description": "When an agent file tool touches frontend/src/types/trace.ts, warn that the FROZEN shared contract changed and run npm run typecheck. Other edits pass through silently.",
+      "matcher": "^(fs_write|str_replace|fs_append|delete_file|smart_relocate|semantic_rename)$",
+      "action": {
+        "type": "command",
+        "command": "input=$(cat); echo \"$input\" | grep -Eq '(path|targetFile|sourcePath|destinationPath)\\\\?\"[[:space:]]*:[[:space:]]*\\\\?\"[^\"]*frontend/src/types/trace\\.ts' || exit 0; cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/frontend\" || exit 1; msg=\"WARNING: an agent edited frontend/src/types/trace.ts (the FROZEN shared contract). Only the integrator may change it. Review with: git diff -- frontend/src/types/trace.ts\"; echo \"$msg\"; echo \"$msg\" >&2; out=$(npm run typecheck 2>&1); code=$?; echo \"$out\" | tail -30; if [ \"$code\" -ne 0 ]; then echo \"typecheck FAILED (exit $code) after contract change\" >&2; exit 1; fi; echo \"typecheck passed\"",
+        "timeout": 120
+      }
+    }
+  ]
+}

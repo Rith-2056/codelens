@@ -27,14 +27,14 @@
   - Run `.venv/bin/pytest`; the whole suite must pass.
   - _Requirements: 6.1_
 
-- [ ] 5. Build the Pyodide worker and client
+- [x] 5. Build the Pyodide worker and client
   - Pin the `pyodide` npm package to an exact version.
   - Write `frontend/src/worker/trace.worker.ts`: load Pyodide, write `tracer.py` (imported via `?raw`) into its filesystem, and answer `{id, source}` messages.
   - Write `frontend/src/worker/traceClient.ts`: `preloadTracer()` and `traceCode()`, a 3000 ms timeout that terminates the worker, returns a `"timeout"` result with a SHA-256 `codeHash`, and respawns the worker.
   - `npm run typecheck` and `npm run build` must pass.
   - _Requirements: 5.1, 5.2_
 
-- [ ] 6. Check the tracer under Pyodide
+- [x] 6. Check the tracer under Pyodide
   - Add `frontend/src/worker/pyodide-check.mjs`, a Node script run as `node src/worker/pyodide-check.mjs`. It loads the same pinned Pyodide in Node, runs `tracer.trace_json` on the loop lesson, and exits non-zero unless the result equals `shared/fixtures/loop.json`. It also checks that `while True: pass` gives `"limit"`.
   - Note Pyodide's Python version and any trace-event differences in `design.md`.
   - The browser timeout path (`10**10**8` gives `"timeout"` and the next run still works) is checked once ui-builder wires `traceCode` into the app. This stays inside trace-engineer's folders.

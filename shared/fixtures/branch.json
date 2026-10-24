@@ -1,0 +1,78 @@
+{
+  "status": "ok",
+  "truncated": false,
+  "codeHash": "085c6d868d50f4c48867ebe998ebbb57336b2d3f352ace5f07b3da3c0ca84483",
+  "steps": [
+    {
+      "index": 0,
+      "line": 1,
+      "event": "call",
+      "functionName": "<module>",
+      "frameId": "module",
+      "depth": 0,
+      "locals": {},
+      "stdout": ""
+    },
+    {
+      "index": 1,
+      "line": 1,
+      "event": "line",
+      "functionName": "<module>",
+      "frameId": "module",
+      "depth": 0,
+      "locals": {},
+      "stdout": ""
+    },
+    {
+      "index": 2,
+      "line": 2,
+      "event": "line",
+      "functionName": "<module>",
+      "frameId": "module",
+      "depth": 0,
+      "locals": {
+        "temperature": 30
+      },
+      "stdout": ""
+    },
+    {
+      "index": 3,
+      "line": 3,
+      "event": "line",
+      "functionName": "<module>",
+      "frameId": "module",
+      "depth": 0,
+      "locals": {
+        "temperature": 30
+      },
+      "stdout": ""
+    },
+    {
+      "index": 4,
+      "line": 6,
+      "event": "line",
+      "functionName": "<module>",
+      "frameId": "module",
+      "depth": 0,
+      "locals": {
+        "temperature": 30,
+        "advice": "Wear a T-shirt"
+      },
+      "stdout": ""
+    },
+    {
+      "index": 5,
+      "line": 6,
+      "event": "return",
+      "functionName": "<module>",
+      "frameId": "module",
+      "depth": 0,
+      "locals": {
+        "temperature": 30,
+        "advice": "Wear a T-shirt"
+      },
+      "stdout": "Wear a T-shirt\n",
+      "returnValue": null
+    }
+  ]
+}

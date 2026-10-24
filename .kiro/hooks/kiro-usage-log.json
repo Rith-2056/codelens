@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Log task to KIRO_USAGE.md",
+      "trigger": "Stop",
+      "description": "When an agent finishes a task, append one line to KIRO_USAGE.md with the time, what was asked, the Kiro feature used, and the result.",
+      "action": {
+        "type": "agent",
+        "prompt": "Log the task you just finished in KIRO_USAGE.md at the repo root, then stop.\n\nException: if the task you just finished was only appending this log line, do nothing and make no tool calls, so this hook does not loop.\n\nSteps:\n1. Get the local time by running: date '+%Y-%m-%d %H:%M'\n2. Append exactly ONE line to KIRO_USAGE.md with fs_append (if the file is missing, create it first with the heading \"# How Kiro was used\"). Use this format:\n   - <time> | Asked: <the user's request, paraphrased in 15 words or fewer> | Kiro: <the feature or surface used, e.g. Vibe chat, Spec trace-engine task 2, agent hook, steering, sub-agent, terminal> | Result: <the outcome in 15 words or fewer, including failures or anything left unfinished>\n3. Do not edit any other part of the file. Never include code, file contents, secrets, tokens, or personal data in the line."
+      }
+    }
+  ]
+}

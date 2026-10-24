@@ -20,6 +20,11 @@
   --changed-bg: #fde3c6;
   --changed-fg: #5c2600;
   --cell-bg: #f2f2f2;
+  --error-bg: #ffe0e0;
+  --error-edge: #a30000;
+  --warn-bg: #fff1d6;
+  --warn-edge: #7a4a00;
+  --info-bg: #eef4fc;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
     monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
@@ -46,6 +51,11 @@
     --changed-bg: #4a2600;
     --changed-fg: #ffd9b0;
     --cell-bg: #262626;
+    --error-bg: #3d1010;
+    --error-edge: #ff9b9b;
+    --warn-bg: #3a2a00;
+    --warn-edge: #ffd27a;
+    --info-bg: #14233a;
   }
 }
 
@@ -369,6 +379,243 @@ code {
   border-radius: 4px;
 }
 
+/* Lesson picker and toolbar */
+
+.lesson-picker,
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lesson-picker-label {
+  font-weight: 700;
+}
+
+.lesson-button,
+.tool-button,
+.lang-button {
+  min-height: 44px;
+  padding: 6px 14px;
+  font: inherit;
+  color: var(--fg);
+  background: transparent;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.lesson-button:hover,
+.tool-button:hover,
+.lang-button:hover {
+  border-color: var(--accent);
+}
+
+.lesson-button[aria-pressed="true"],
+.lang-button[aria-pressed="true"] {
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
+/* The pressed state is also shown with a text check mark, not color alone. */
+.lesson-button[aria-pressed="true"]::before,
+.lang-button[aria-pressed="true"]::before {
+  content: "✓ ";
+}
+
+.visualize-button {
+  min-height: 44px;
+  margin-left: auto;
+  padding: 8px 20px;
+  font: inherit;
+  font-weight: 700;
+  color: #ffffff;
+  background: #0b4fa8;
+  border: 2px solid #0b4fa8;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.visualize-button:hover:not([aria-disabled="true"]) {
+  background: #083a7d;
+}
+
+.visualize-button[aria-disabled="true"] {
+  color: var(--muted);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .visualize-button {
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+}
+
+.jump-button {
+  margin-top: 12px;
+}
+
+.tool-button[aria-disabled="true"] {
+  color: var(--muted);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+/* Run status */
+
+.run-status {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 2px solid var(--border);
+  border-left-width: 6px;
+  border-radius: 6px;
+  background: var(--info-bg);
+}
+
+.run-status p {
+  margin: 0;
+}
+
+.run-status-title {
+  font-weight: 700;
+}
+
+.run-status-detail {
+  margin-top: 2px;
+}
+
+.run-status.tone-warn {
+  background: var(--warn-bg);
+  border-color: var(--warn-edge);
+}
+
+.run-status.tone-error {
+  background: var(--error-bg);
+  border-color: var(--error-edge);
+}
+
+.run-status-tag {
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.03em;
+}
+
+/* Editor */
+
+.editor {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.editor-gutter,
+.editor-input {
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  padding: 8px 0;
+}
+
+.editor-gutter {
+  overflow: hidden;
+  min-width: 3ch;
+  padding-left: 8px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--muted);
+  border: 2px solid var(--border);
+  border-right: 1px solid var(--rule);
+  border-radius: 6px 0 0 6px;
+  user-select: none;
+}
+
+.editor-input {
+  width: 100%;
+  padding-left: 10px;
+  padding-right: 10px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 2px solid var(--border);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  resize: vertical;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 4;
+}
+
+.editor-input:focus-visible {
+  outline-offset: 0;
+}
+
+.editor-help {
+  grid-column: 1 / -1;
+}
+
+/* Output and explanation */
+
+.subheading {
+  font-size: 1.05rem;
+  margin: 20px 0 8px;
+}
+
+.output {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--cell-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.explain-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.explain-head .subheading {
+  margin: 0;
+}
+
+.lang-toggle {
+  display: flex;
+  gap: 6px;
+}
+
+.explanation {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+}
+
+.explanation p {
+  margin: 0;
+}
+
+.explanation-text {
+  font-size: 1.05rem;
+}
+
+.explanation-source {
+  margin-top: 6px !important;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 /* Windows high-contrast / forced colors: keep the highlight visible. */
 @media (forced-colors: active) {
   .code-line.current {
@@ -378,5 +625,10 @@ code {
   .line-label,
   .marker {
     border: 1px solid CanvasText;
+  }
+  .visualize-button,
+  .lesson-button[aria-pressed="true"],
+  .lang-button[aria-pressed="true"] {
+    border: 2px solid ButtonText;
   }
 }

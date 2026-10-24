@@ -1,0 +1,132 @@
+# Requirements: ds-visualizers
+
+## Introduction
+Level 2 of CodeLens teaches interview patterns by showing the student's own
+solution change real data structures. The v1 snapshot rules cannot show those
+structures: running the six Level 2 lessons through the current tracer turns
+the hash map with int keys, the set, the deque, the adjacency dict, and every
+`TreeNode` into type-only placeholders. This spec covers the contract change
+(v2), the tracer, the six Level 2 lessons, the visualizers, and explanations of
+data-structure changes. Sources: `docs/plan.md` ("Learning path", "Level 2
+features") and `.kiro/steering/`.
+
+Owners: integrator (contract), trace-engineer (tracer, fixtures, worker),
+ui-builder (lessons, visualizers), explainer (templates, API).
+
+## Glossary
+- **Object snapshot**: one entry in a step's `objects` map describing a list,
+  tuple, dict, set, deque, or student-defined object at that step.
+- **Ref**: a value `{"__ref__": "<id>"}` that points at an object snapshot.
+- **Placeholder**: a v1-style value `{"__type__": "<name>"}` for anything that
+  is not shown (functions, classes, modules, over-cap objects).
+- **Student-defined object**: an instance of a class created by the student's
+  own code (for example `TreeNode`).
+- **Stack**: the user frames that called the current frame, outermost first.
+
+## Requirement 1: Contract v2
+**User story:** As every workstream, I want one agreed shape for data
+structures, so that the tracer, UI, and explainer can change independently.
+1. `frontend/src/types/trace.ts` SHALL keep every v1 field with its v1 meaning,
+   and SHALL add `objects` and `stack` to `TraceStep` and `version: 2` to
+   `TraceResult`, as defined in design.md.
+2. In v2, a value in `locals`, `returnValue`, a stack frame, or inside an object
+   snapshot SHALL be exactly one of: a primitive, a placeholder, or a ref.
+3. Every ref in a step SHALL resolve to an entry in that same step's
+   `objects`.
+4. Only the integrator SHALL change `trace.ts`. The change SHALL land with
+   whatever minimal edits keep `npm run typecheck` green, because the
+   contract-guard hooks re-run typecheck on every edit to that file.
+
+## Requirement 2: Snapshots of data structures
+**User story:** As a student, I want to see my lists, dicts, sets, queues, and
+tree nodes exactly as my code left them, including when two names point at the
+same object.
+1. Values of exact type `list`, `tuple`, `dict`, `set`, `frozenset`, and
+   `collections.deque`, and student-defined objects, SHALL become refs to
+   object snapshots. Primitives stay inline as in v1.
+2. The same Python object SHALL have the same id in every step of a run, and
+   two names bound to one object SHALL share one ref.
+3. Ids SHALL be assigned deterministically (`o1`, `o2`, … in first-seen order),
+   never from `id()`, so tracing the same program twice gives identical results.
+4. Set items SHALL appear in a deterministic order that does not depend on
+   Python's string hash seed.
+5. Cycles (an object that contains itself, directly or indirectly) SHALL be
+   represented with refs and SHALL NOT loop or crash.
+6. The tracer SHALL NOT call `repr`, `str`, `__eq__`, `__hash__`,
+   `__getattribute__`, `__getattr__`, properties, or any other method that
+   student code can override. Objects whose class makes that impossible SHALL
+   become placeholders.
+7. Each step SHALL include `stack`: the calling user frames, outermost first,
+   with their frameId, functionName, line, depth, and locals.
+
+## Requirement 3: Limits
+**User story:** As a student, I want longer interview-style programs to finish
+and runaway loops to stop quickly.
+1. MAX_STEPS SHALL be 2000. `len(steps)` SHALL never exceed MAX_STEPS.
+2. The limit message SHALL state the number of steps actually in the trace.
+3. `while True: pass` SHALL end with status `"limit"` in under 2 seconds, in
+   CPython and in Pyodide.
+4. Container items beyond MAX_ITEMS, objects beyond MAX_OBJECTS per step, and
+   a whole trace beyond TRACE_BYTE_CAP SHALL be cut, and `truncated` SHALL be
+   true if and only if something was cut.
+5. When the whole trace exceeds TRACE_BYTE_CAP, the run SHALL stop with status
+   `"limit"` and a message that says the run produced too much data to show.
+6. Every step SHALL still serialize within STEP_BYTE_CAP.
+
+## Requirement 4: Level 2 lessons
+**User story:** As a student preparing for interviews, I want six short,
+working examples of the core patterns, explained in plain language.
+1. The lesson picker SHALL group lessons as Level 1 (loop, branch, function)
+   and Level 2 (the six lessons in design.md), in that order.
+2. Each Level 2 lesson SHALL show its title, the pattern name, and its problem
+   statement in English and Spanish.
+3. Titles, problem statements, and example data SHALL be written by us. They
+   SHALL NOT be copied from LeetCode or any other site.
+4. Each lesson SHALL have a fixture in `shared/fixtures/` generated by the
+   tracer, and its source in `lessons.ts` SHALL match the fixture's `codeHash`.
+5. Each lesson SHALL finish with status `"ok"` well under MAX_STEPS and print
+   the expected output listed in design.md.
+
+## Requirement 5: Explanations of structure changes
+**User story:** As a student, I want each step to tell me what changed inside
+my data structures.
+1. Deterministic templates (English and Spanish) SHALL describe: a dict key
+   added or its value changed, an item added to or removed from a set, a list
+   item changed, an item appended to or removed from either end of a deque, a
+   field set on an object, and a recursive call or return.
+2. The no-invented-number check SHALL accept numbers found in `objects` and
+   `stack` as well as in v1 fields, and SHALL NOT accept ids, `index`, or
+   `depth`.
+3. `/api/explain` SHALL accept v2 steps within its payload cap.
+
+## Requirement 6: Visualizers
+**User story:** As a student, I want each data structure drawn the way
+interview prep explains it, with changes marked.
+1. The UI SHALL choose a visualizer from the data, not from the lesson, so a
+   student's own solution gets the same views. Detection rules are in
+   design.md.
+2. Visualizers SHALL exist for: hash map (dict), set, array cells with index
+   pointers, queue (deque), graph (adjacency dict), binary tree
+   (student-defined nodes with left/right children), and call stack.
+3. Each visualizer SHALL mark changes since the previous step with text
+   ("added", "removed", before → after, "front", "back", "visited"), never
+   with color alone.
+4. Two names that share an object SHALL be shown as the same object.
+
+## Requirement 7: Accessibility and performance
+**User story:** As a student using a screen reader or a shared Chromebook, I
+want the new views to work for me.
+1. Every diagram SHALL have a text alternative with the same information.
+2. The step narration SHALL include the structure change for that step.
+3. Everything SHALL work with the keyboard only, at 375 px width, and with
+   `prefers-reduced-motion` (no required animation).
+4. Each Level 2 lesson SHALL trace in under 1 second in Pyodide, and a
+   2000-step trace SHALL finish inside the 3 s worker timeout.
+
+## Requirement 8: Verification
+1. Hypothesis properties (a)–(e) from the trace-engine spec SHALL hold under
+   v2, with (a) comparing the untraced namespace after resolving refs, plus a
+   new property: every ref resolves within its step.
+2. The Pyodide check SHALL cover all nine lessons and produce output identical
+   to CPython.
+3. The Level 2 acceptance tests in `docs/plan.md` SHALL pass in the browser.

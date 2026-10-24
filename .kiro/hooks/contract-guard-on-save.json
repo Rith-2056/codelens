@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Frozen contract guard (save)",
+      "trigger": "PostFileSave",
+      "description": "When frontend/src/types/trace.ts is saved, warn that the FROZEN shared contract changed and run npm run typecheck.",
+      "matcher": "(^|/)frontend/src/types/trace\\.ts$",
+      "action": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/frontend\" || exit 1; msg=\"WARNING: frontend/src/types/trace.ts (the FROZEN shared contract) was changed. Only the integrator may change it, and every workstream depends on it. Review with: git diff -- frontend/src/types/trace.ts\"; echo \"$msg\"; echo \"$msg\" >&2; out=$(npm run typecheck 2>&1); code=$?; echo \"$out\" | tail -30; if [ \"$code\" -ne 0 ]; then echo \"typecheck FAILED (exit $code) after contract change\" >&2; exit 1; fi; echo \"typecheck passed\"",
+        "timeout": 120
+      }
+    }
+  ]
+}

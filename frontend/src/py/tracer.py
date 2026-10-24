@@ -647,6 +647,8 @@ class _Tracer:
             state = self._new_state(frame)
         loc, types, cut = _locals_snapshot(frame)
         self._record(EVENT_CALL, state, self._line(frame), loc, types, cut)
+        state["call_step"] = self.steps[-1]
+        state["closing"] = False
 
     def _on_line(self, frame):
         self._reserve()
@@ -663,6 +665,12 @@ class _Tracer:
         if kind == _UNWIND:
             # Python fires "return" while an exception passes through: skip it.
             self.frames.pop(id(frame), None)
+            if state.get("closing") and self.steps and self.steps[-1] is state.get("call_step"):
+                # generator.close() threw GeneratorExit into a suspended
+                # generator and nothing ran: drop the orphan resume "call".
+                # Some CPython builds (e.g. 3.13.2, Pyodide 0.29) close such a
+                # generator without any trace events; this keeps them equal.
+                self.steps.pop()
             exc = self.exc
             if exc is not None and exc["frame"] is frame:
                 exc["frame_done"] = True
@@ -682,6 +690,8 @@ class _Tracer:
     def _on_exception(self, frame, arg):
         state = self._state(frame)
         state["unwinding"] = True
+        if arg[0] is GeneratorExit and self.steps and self.steps[-1] is state.get("call_step"):
+            state["closing"] = True
         exc_value = arg[1]
         prev = self.exc
         if (

@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Run pytest on tracer/test save",
+      "trigger": "PostFileSave",
+      "description": "When a file in frontend/src/py/ or tests/ is saved, run the pytest suite and report failures.",
+      "matcher": "(^|/)(frontend/src/py|tests)/",
+      "action": {
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" || exit 1; if [ ! -x .venv/bin/pytest ]; then echo \"pytest hook: .venv/bin/pytest not found. Create it with: uv venv .venv && uv pip install --python .venv/bin/python -r requirements-dev.txt\" >&2; exit 1; fi; out=$(.venv/bin/pytest -q --tb=short -rf 2>&1); code=$?; if [ \"$code\" -ne 0 ]; then echo \"pytest FAILED (exit $code)\"; echo \"$out\" | tail -40; echo \"pytest FAILED (exit $code), see output above\" >&2; exit 1; fi; echo \"pytest passed: $(echo \"$out\" | tail -1)\"",
+        "timeout": 120
+      }
+    }
+  ]
+}

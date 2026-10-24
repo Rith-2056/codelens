@@ -1,0 +1,14 @@
+{
+  "name": "codelens-api",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Serverless /api/explain handler for CodeLens. Holds the only LLM call; the browser never sees the key.",
+  "scripts": {
+    "test": "node --test explain.test.mjs ../frontend/src/explain/client.test.mjs",
+    "typecheck": "../frontend/node_modules/.bin/tsc -p ."
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0"
+  }
+}
