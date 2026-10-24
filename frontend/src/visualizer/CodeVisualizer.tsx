@@ -148,7 +148,7 @@ export default function CodeVisualizer(props: Props) {
   const justRan = prev ? (lines[prev.line - 1] ?? "") : "";
   const template = explainStep(i > 0 ? steps[i - 1] : undefined, step, lang, program);
   const structures = structuresFor(locals, prev?.locals);
-  const changes = stepChanges(step, prev);
+  const changes = stepChanges(step, prev, program);
 
   // The main list for array-shaped algorithms, if this frame has it.
   const listName = pattern.table ?? pattern.array;
@@ -169,11 +169,16 @@ export default function CodeVisualizer(props: Props) {
   if (hasList && pattern.kind === "sliding-window") {
     const k = pattern.windowSize ? locals[pattern.windowSize] : undefined;
     const r = ["right", "end", "r", "j", "i", "hi"].map((n) => locals[n]).find(isInt);
+    const v = pattern.windowValue ? locals[pattern.windowValue] : undefined;
+    const value = v !== undefined && isScalar(v) ? ` · ${pattern.windowValue} = ${formatValue(v, heap)}` : "";
     if (isInt(k)) {
       const to = r !== undefined ? r : k - 1;
-      const v = pattern.windowValue ? locals[pattern.windowValue] : undefined;
-      const value = v !== undefined && isScalar(v) ? ` · ${pattern.windowValue} = ${formatValue(v, heap)}` : "";
       band = { from: Math.max(0, to - k + 1), to, label: `window: k = ${k}${value}` };
+    } else {
+      // No fixed size: the window runs from the left pointer to the right one
+      // (it is empty for a moment right after it shrinks past right).
+      const l = LOW.map((n) => locals[n]).find(isInt);
+      if (l !== undefined && r !== undefined && l <= r) band = { from: l, to: r, label: `window: left to right${value}` };
     }
   }
   const onStage = new Set<string>(hasList ? [listName!, ...pointers.map((p) => p.name)] : []);

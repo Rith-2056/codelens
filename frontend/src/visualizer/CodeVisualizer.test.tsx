@@ -104,6 +104,14 @@ describe("Code Visualizer", () => {
     expect(within(viz()).getByText(/k = 3/)).toBeTruthy();
   });
 
+  it("sliding window without a fixed k: the band spans left to right as it grows and shrinks", () => {
+    const { steps } = load("minimum-size-subarray-sum");
+    render(<Harness slug="minimum-size-subarray-sum" start={afterLine(steps, 7, (s) => s.locals.right === 2)} />);
+    const c = cells("nums");
+    expect([...c].map((li) => /in window/.test(li.textContent ?? ""))).toEqual([true, true, true, false, false]);
+    expect(within(viz()).getByText(/window: left to right · window = 7/)).toBeTruthy();
+  });
+
   it("dynamic programming: the cell just written and the cells it read", () => {
     const { steps } = load("climbing-stairs");
     render(<Harness slug="climbing-stairs" start={afterLine(steps, 7, (s) => s.locals.i === 4)} />);

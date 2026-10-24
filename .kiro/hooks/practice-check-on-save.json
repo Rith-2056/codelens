@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Practice data check on save",
+      "trigger": "PostFileSave",
+      "description": "When problem data (shared/practice/), a reference solution, or practice.py is saved: run the practice and counterexample tests and check the practice fixtures are current. Catches a reference that disagrees with its examples, a generator that yields an invalid input, or a search that no longer finishes in its 1.5 s budget.",
+      "matcher": "(^|/)(shared/practice/|frontend/src/py/practice\\.py$)",
+      "action": {
+        "type": "command",
+        "timeout": 180,
+        "command": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\" || exit 1; if [ ! -x .venv/bin/pytest ]; then echo \"practice check: .venv/bin/pytest not found. Create it with: uv venv .venv && uv pip install --python .venv/bin/python -r requirements-dev.txt\" >&2; exit 1; fi; out=$(.venv/bin/pytest -q --tb=short tests/test_practice.py tests/test_counterexample.py 2>&1); code=$?; echo \"$out\" | tail -25; if [ \"$code\" -ne 0 ]; then echo \"practice tests FAILED (exit $code)\" >&2; exit 1; fi; fx=$(.venv/bin/python frontend/src/py/gen_fixtures.py --check 2>&1); fcode=$?; if [ \"$fcode\" -ne 0 ]; then echo \"$fx\" | tail -10; echo \"practice fixtures are stale: run .venv/bin/python frontend/src/py/gen_fixtures.py --all\" >&2; exit 1; fi; echo \"practice data ok: tests pass and fixtures are current\""
+      }
+    }
+  ]
+}

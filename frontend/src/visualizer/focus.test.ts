@@ -145,6 +145,16 @@ describe("firstRealStep: where a run starts", () => {
 });
 
 describe("stepChanges", () => {
+  it("a call lists only that function's parameters, not variables it sees from outside (closures)", () => {
+    const { program, steps } = run("number-of-islands");
+    const k = steps.findIndex((s, j) => s.functionName === "sink" && s.event === "line" && steps[j - 1]?.event === "call");
+    expect(stepChanges(steps[k]!, previousInFrame(steps, k), program).map((c) => c.shown)).toEqual([
+      "sink() was called",
+      `r = ${String(steps[k]!.locals.r)}`,
+      `c = ${String(steps[k]!.locals.c)}`,
+    ]);
+  });
+
   it("at a function's first line, names the call and the arguments it got (not 'nothing changed')", () => {
     const { program, steps } = run("two-sum");
     const k = firstRealStep(steps, program, "twoSum");

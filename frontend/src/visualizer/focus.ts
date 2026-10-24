@@ -384,7 +384,18 @@ export type StepChange = { shown: string; spoken: string };
 const isScalar = (v: JsonValue) => ["primitive", "placeholder"].includes(kindOf(v));
 
 /** What a step changed, one entry each: visible text (with →) and spoken text (without). */
-export function stepChanges(step: TraceStep, prev: TraceStep | undefined): StepChange[] {
+/** The parameter names in `def name(...)` in the source, or null if not found. */
+function defParams(source: string | undefined, fn: string): string[] | null {
+  if (!source) return null;
+  const m = new RegExp(`^\\s*(?:async\\s+)?def\\s+${fn.replace(/[^\w]/g, "")}\\s*\\(([^)]*)\\)`, "m").exec(source);
+  if (!m) return null;
+  return m[1]!
+    .split(",")
+    .map((p) => p.trim().replace(/^\*{1,2}/, "").split(/[:=]/)[0]!.trim())
+    .filter((p) => p !== "");
+}
+
+export function stepChanges(step: TraceStep, prev: TraceStep | undefined, source?: string): StepChange[] {
   const out: StepChange[] = [];
   const heap = step.heap ?? {};
   // The first step of a call (or its first line, right after the call
@@ -393,8 +404,10 @@ export function stepChanges(step: TraceStep, prev: TraceStep | undefined): StepC
     if (step.functionName !== "<module>") {
       const t = `${step.functionName}() was called`;
       out.push({ shown: t, spoken: t });
+      // Only its parameters: a nested function also sees outer variables.
+      const params = defParams(source, step.functionName);
       for (const [name, value] of Object.entries(step.locals)) {
-        if (isHiddenValue(value)) continue;
+        if (isHiddenValue(value) || (params !== null && !params.includes(name))) continue;
         out.push({ shown: `${name} = ${formatValue(value, heap)}`, spoken: `${name} is ${formatValue(value, heap)}` });
       }
     }

@@ -29,11 +29,16 @@ plain-language explanation grounded only in the real execution trace.
   (contains-duplicate style), two pointers on a sorted array, BFS on a graph
   (adjacency dict, deque queue, visited set), max depth of a binary tree
   (recursion plus `TreeNode`), climbing stairs as 1D DP.
-- Practice problems use LeetCode's real names, numbers and `class Solution`
-  signatures; problem statements and examples are our own words (see
-  `frontend/src/problems.ts`).
-- Pages: home, the problem list, one page per problem (your solution next to a
-  correct one), and a playground for any Python program.
+- **Practice problems (25, grouped by pattern):** Arrays & Hashing, Two
+  Pointers, Sliding Window, Binary Search, Stack, Trees, Graphs, Dynamic
+  Programming, with 2 to 4 each (spec: `.kiro/specs/problem-catalog/`).
+  They use LeetCode's real names, numbers and `class Solution` signatures;
+  statements and examples are our own words (see `frontend/src/problems.ts`
+  and `.kiro/steering/problems.md`).
+- Pages: home, the problem list (one section per pattern), one page per
+  problem (your solution and, on request, the correct one), the Code
+  Visualizer (a full-screen debugger view of one run), and a playground for
+  any Python program.
 
 ## MVP features
 1. Editor: syntax-highlighted Python with the three Level 1 lessons (loop,

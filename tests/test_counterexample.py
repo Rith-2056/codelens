@@ -38,6 +38,52 @@ AVERAGE_MISSES_LAST_WINDOW = """class Solution:
         return best / k
 """
 
+SEARCH_INSERT_MINUS_ONE = """class Solution:
+    def searchInsert(self, nums, target):
+        left, right = 0, len(nums) - 1
+        while left <= right:
+            mid = (left + right) // 2
+            if nums[mid] == target:
+                return mid
+            if nums[mid] < target:
+                left = mid + 1
+            else:
+                right = mid - 1
+        return -1
+"""
+
+PARENS_POP_EMPTY = """class Solution:
+    def isValid(self, s):
+        pairs = {")": "(", "]": "["}
+        stack = []
+        for ch in s:
+            if ch in pairs:
+                if stack.pop() != pairs[ch]:
+                    return False
+            else:
+                stack.append(ch)
+        return not stack
+"""
+
+ROBBER_EVEN_ODD = """class Solution:
+    def rob(self, nums):
+        return max(sum(nums[::2]), sum(nums[1::2]))
+"""
+
+WINDOW_LENGTH_OFF_BY_ONE = """class Solution:
+    def minSubArrayLen(self, target, nums):
+        left = 0
+        window = 0
+        best = len(nums) + 1
+        for right in range(len(nums)):
+            window += nums[right]
+            while window >= target:
+                best = min(best, right - left)
+                window -= nums[left]
+                left += 1
+        return best if best <= len(nums) else 0
+"""
+
 TWO_SUM_SAME_ELEMENT = """class Solution:
     def twoSum(self, nums, target):
         for i in range(len(nums)):
@@ -136,13 +182,18 @@ def test_every_candidate_input_is_valid_and_sorted_smallest_first(slug):
         ("find-if-path-exists-in-graph", PATH_ONE_WAY_EDGES, lambda r: r["args"][0] == 2 and r["expected"] is True),
         ("binary-search", BINARY_SEARCH_STRICT_LOOP, lambda r: len(r["args"][0]) == 1 and r["got"] == -1 and r["expected"] == 0),
         ("maximum-average-subarray-i", AVERAGE_MISSES_LAST_WINDOW, lambda r: len(r["args"][0]) == 2 and r["args"][1] == 1),
+        ("search-insert-position", SEARCH_INSERT_MINUS_ONE, lambda r: len(r["args"][0]) == 1 and r["got"] == -1),
+        ("valid-parentheses", PARENS_POP_EMPTY, lambda r: r["args"] == [")"] and r["error"] is not None),
+        ("house-robber", ROBBER_EVEN_ODD, lambda r: len(r["args"][0]) == 4 and r["got"] < r["expected"]),
+        ("minimum-size-subarray-sum", WINDOW_LENGTH_OFF_BY_ONE, lambda r: r["args"] == [1, [1]] and r["got"] == 0),
         ("maximum-depth-of-binary-tree", DEPTH_COUNTS_EDGES, lambda r: r["args"] == [[1]] and r["got"] == 0),
     ],
 )
 def test_finds_the_smallest_input_that_breaks_a_real_bug(slug, source, check):
     res = practice.find_counterexample(slug, source)
     assert res["found"] is True, res
-    assert res["error"] is None
+    if slug != "valid-parentheses":  # that bug crashes (pop from an empty stack); the others return a wrong answer
+        assert res["error"] is None
     assert check(res), res
     # Nothing smaller breaks it: every earlier candidate gives the right answer.
     smaller = [a for a in practice.candidates(slug) if size(slug, a) < size(slug, res["args"])]

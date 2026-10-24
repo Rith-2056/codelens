@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Review problem statements on save",
+      "trigger": "PostFileSave",
+      "description": "When frontend/src/problems.ts is saved, the agent reviews the problem texts against .kiro/steering/problems.md: our own words (never LeetCode's), English and Spanish both present and saying the same thing, a valid category, and a signature that matches problems.json.",
+      "matcher": "(^|/)frontend/src/problems\\.ts$",
+      "action": {
+        "type": "agent",
+        "prompt": "frontend/src/problems.ts was just saved. Review only the problem entries that changed (use git diff -- frontend/src/problems.ts), following #[[file:.kiro/steering/problems.md]]. For each changed entry check: (1) the statement is in our own words and does not reproduce LeetCode's text or examples; (2) `es` says the same as `en`, in natural Spanish; (3) `category` is one of CATEGORIES and the entry sits with its category in the list order; (4) `method` and `signature` match shared/practice/problems.json and the reference solution. Report each problem as OK or list what to fix. Do not edit files unless asked."
+      }
+    }
+  ]
+}

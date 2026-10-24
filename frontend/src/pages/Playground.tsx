@@ -289,7 +289,7 @@ export default function Playground() {
                 <p className="hint">Some values or output were too long, so CodeLens shortened them.</p>
               )}
               <h3 className="subheading">What changed</h3>
-              <ChangeList changes={stepChanges(step, prevStep)} />
+              <ChangeList changes={stepChanges(step, prevStep, traced.code)} />
               <p className="hint viewer-more">
                 Lists, pointers, hash maps and every variable are drawn in the Code Visualizer.{" "}
                 <button type="button" className="link-button" onClick={openVisualizer}>

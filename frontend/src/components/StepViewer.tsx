@@ -74,7 +74,7 @@ export default function StepViewer({ label, program, trace, lang, stepper, activ
           <ControlBar index={i} total={steps.length} line={step.line} start={stepper.start} description={template} onIndexChange={goTo} globalKeys={active} />
           {trace.message && <p className="hint">{trace.message}</p>}
           <h4 className="subheading">What changed</h4>
-          <ChangeList changes={stepChanges(step, prevStep)} />
+          <ChangeList changes={stepChanges(step, prevStep, program)} />
           <p className="hint viewer-more">
             Lists, pointers, hash maps and every variable are drawn in the Code Visualizer.{" "}
             <button type="button" className="link-button" onClick={onOpenVisualizer}>

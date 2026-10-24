@@ -55,7 +55,7 @@ describe("app shell", () => {
     await noAxeViolations();
   });
 
-  it("lists the eight LeetCode problems with numbers, names and difficulty", async () => {
+  it("lists the 25 LeetCode problems with numbers, names and difficulty, grouped by pattern", async () => {
     render(<App />);
     await go("Problems");
     expect(document.title).toBe("Problems · CodeLens");
@@ -63,13 +63,12 @@ describe("app shell", () => {
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading.textContent).toBe("Problems");
     expect(document.activeElement).toBe(heading); // focus moves to the new page
-    const list = screen.getByRole("list", { name: "LeetCode problems" });
-    const items = [...list.querySelectorAll(":scope > li")].map((li) => li.textContent ?? "");
-    expect(items).toHaveLength(8);
+    const items = [...document.querySelectorAll(".problem-list > li")].map((li) => li.textContent ?? "");
+    expect(items).toHaveLength(25);
     expect(items[0]).toMatch(/1\. Two Sum.*Easy.*Hash map/);
-    expect(items[2]).toMatch(/167\. Two Sum II - Input Array Is Sorted.*Medium/);
-    expect(items[3]).toMatch(/643\. Maximum Average Subarray I.*Easy.*Sliding window/);
-    expect(items[4]).toMatch(/704\. Binary Search.*Easy.*Binary search/);
+    expect(items[5]).toMatch(/167\. Two Sum II - Input Array Is Sorted.*Medium/);
+    expect(items[8]).toMatch(/643\. Maximum Average Subarray I.*Easy.*Sliding window/);
+    expect(items[10]).toMatch(/704\. Binary Search.*Easy.*Binary search/);
     await noAxeViolations();
   });
 

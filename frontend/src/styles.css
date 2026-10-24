@@ -2824,3 +2824,30 @@ h1[tabindex="-1"]:focus-visible,
   border-style: dashed;
   cursor: not-allowed;
 }
+
+/* Problem list: one section per pattern. */
+.problem-group {
+  margin-top: 26px;
+}
+
+.problem-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.problem-group-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.problem-group-count {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.problem-group .problem-list {
+  margin-top: 10px;
+}

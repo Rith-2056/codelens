@@ -22,16 +22,33 @@ ROOT = Path(__file__).resolve().parent.parent
 SLUGS = [
     "two-sum",
     "contains-duplicate",
+    "valid-anagram",
+    "product-of-array-except-self",
+    "squares-of-a-sorted-array",
     "two-sum-ii-input-array-is-sorted",
+    "container-with-most-water",
+    "best-time-to-buy-and-sell-stock",
     "maximum-average-subarray-i",
+    "minimum-size-subarray-sum",
     "binary-search",
-    "find-if-path-exists-in-graph",
+    "search-insert-position",
+    "find-minimum-in-rotated-sorted-array",
+    "valid-parentheses",
+    "daily-temperatures",
     "maximum-depth-of-binary-tree",
+    "same-tree",
+    "path-sum",
+    "flood-fill",
+    "find-if-path-exists-in-graph",
+    "number-of-islands",
     "climbing-stairs",
+    "min-cost-climbing-stairs",
+    "house-robber",
+    "maximum-subarray",
 ]
 
 
-def test_problem_data_covers_the_eight_problems_in_order():
+def test_problem_data_covers_the_25_problems_in_category_order():
     problems = practice.load_problems()
     assert list(problems) == SLUGS
     for slug, p in problems.items():

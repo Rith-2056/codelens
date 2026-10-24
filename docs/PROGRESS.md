@@ -699,3 +699,38 @@ Checked in the browser:
   jump to the previous or next change of that variable. The logic and tests
   were restored from history; a button with nowhere to go stays focusable and
   says so.
+
+| 17 | Problem catalog: 25 problems in 8 pattern groups (spec `problem-catalog`) | done |
+
+### Stage 17: problem catalog, spec first, tests first
+- **Spec:** `.kiro/specs/problem-catalog/` (requirements in WHEN/SHALL form,
+  a design table, tasks linked to requirements), written before any code.
+- **Tests first (red):**
+  - the 25 slugs in category order (pytest)
+  - planted beginner bugs for 4 new problems: Search Insert returning -1, a
+    bracket check that pops from an empty stack, an even/odd House Robber,
+    and a window length off by one
+  - the catalog table with categories (vitest)
+  - one list section per category
+- **Data:** 17 problems, each with a reference solution and statements in
+  English and Spanish, in our own words with our own examples. Expected
+  answers were computed by running the references, never typed. Every
+  reference run is under 2000 steps (24 to 159).
+- **Search:** generators of 75 to 340 small valid inputs each. Every
+  reference finishes its full search in about 0.1 s.
+- **Visualizer:**
+  - a sliding window with no fixed `k` (Minimum Size Subarray Sum) draws its
+    band from left to right
+  - a call's "What changed" lists only that function's parameters, not the
+    variables a nested function sees from outside (found in the browser on
+    Number of Islands)
+- **Kiro:**
+  - hooks `practice-check-on-save` (command; checked to exit 1 on a
+    deliberately broken reference), `problem-text-review-on-save` (agent) and
+    `tests-first-guard` (PreToolUse agent)
+  - conditional steering `problems.md` (`inclusion: fileMatch`, with a
+    `#[[file:]]` link to the spec)
+  - `docs/KIRO_WRITEUP.md`, with gaps for what only you can say
+- **Browser check:** the grouped list; Number of Islands (grid, call stack,
+  "call 4 deep (recursion)"); Valid Parentheses (stack, pairs map).
+- **Checks:** 700 tests green.

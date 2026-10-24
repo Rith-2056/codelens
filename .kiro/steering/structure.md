@@ -7,6 +7,7 @@ codelens/
   docs/plan.md
   frontend/src/components/   (Editor, CodeView, highlight.ts, StepViewer, DataStructures, Arrays, CallStack, Explanation, Narrator)
   frontend/src/visualizer/   (CodeVisualizer, ControlBar, ArrayStage, ChangeList, focus.ts: pattern, context, variables, cells)
+  shared/practice/           (problems.json + one reference solution per problem; see steering/problems.md)
   frontend/src/components/visualizers/   (HashMap, Set, Queue, Graph, Tree, CallStack)
   frontend/src/worker/trace.worker.ts  traceClient.ts
   frontend/src/py/tracer.py  gen_fixtures.py

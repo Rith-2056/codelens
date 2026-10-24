@@ -269,6 +269,23 @@ _SIZE = {
     "find-if-path-exists-in-graph": lambda a: (a[0] + len(a[1]), len(a[1]), a[2], a[3]),
     "maximum-depth-of-binary-tree": lambda a: (_tree_nodes(a[0]), len(a[0])),
     "climbing-stairs": lambda a: (a[0],),
+    "valid-anagram": lambda a: (len(a[0]) + len(a[1]), len(a[0])),
+    "product-of-array-except-self": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "squares-of-a-sorted-array": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "container-with-most-water": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "best-time-to-buy-and-sell-stock": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "minimum-size-subarray-sum": lambda a: (len(a[1]), _abs_sum(a[1]), a[0]),
+    "search-insert-position": lambda a: (len(a[0]), _abs_sum(a[0]), abs(a[1])),
+    "find-minimum-in-rotated-sorted-array": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "valid-parentheses": lambda a: (len(a[0]),),
+    "daily-temperatures": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "same-tree": lambda a: (_tree_nodes(a[0]) + _tree_nodes(a[1]), len(a[0]) + len(a[1])),
+    "path-sum": lambda a: (_tree_nodes(a[0]), len(a[0]), abs(a[1])),
+    "flood-fill": lambda a: (len(a[0]) * len(a[0][0]), a[1] + a[2], a[3]),
+    "number-of-islands": lambda a: (len(a[0]) * len(a[0][0]), len(a[0])),
+    "min-cost-climbing-stairs": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "house-robber": lambda a: (len(a[0]), _abs_sum(a[0])),
+    "maximum-subarray": lambda a: (len(a[0]), _abs_sum(a[0])),
 }
 
 
@@ -383,6 +400,137 @@ def _gen_climbing_stairs():
         yield [n]
 
 
+def _lists(lengths, values, sample=None):
+    """Every list of the given lengths over `values`; lists of length
+    `sample[0]` keep only every `sample[1]`-th one, to stay small."""
+    for length in lengths:
+        for n, xs in enumerate(itertools.product(values, repeat=length)):
+            if sample and length == sample[0] and n % sample[1]:
+                continue
+            yield list(xs)
+
+
+def _valued_trees(max_nodes, values):
+    """Level-order lists for every tree shape up to max_nodes, with every
+    assignment of `values` to its nodes (in level order)."""
+    for n in range(0, max_nodes + 1):
+        for shape in _shapes(n):
+            for vals in itertools.product(values, repeat=n):
+                labels = iter(vals)
+                order = _level_order(shape)
+                yield [None if v is None else next(labels) for v in order]
+
+
+def _grids(shapes, values):
+    for rows, cols in shapes:
+        for cells in itertools.product(values, repeat=rows * cols):
+            yield [list(cells[r * cols:(r + 1) * cols]) for r in range(rows)]
+
+
+def _gen_valid_anagram():
+    words = ["".join(w) for n in (1, 2, 3) for w in itertools.product("ab", repeat=n)]
+    for s in words:
+        for t in words:
+            yield [s, t]
+
+
+def _gen_product_except_self():
+    for nums in _lists((2, 3, 4), range(-1, 3)):
+        yield [nums]
+
+
+def _gen_sorted_squares():
+    for length in (1, 2, 3, 4):
+        for nums in itertools.combinations_with_replacement(range(-3, 3), length):
+            yield [list(nums)]
+
+
+def _gen_container():
+    for height in _lists((2, 3, 4), range(0, 4)):
+        yield [height]
+
+
+def _gen_stock():
+    for prices in _lists((1, 2, 3, 4), range(0, 4), sample=(4, 2)):
+        yield [prices]
+
+
+def _gen_min_subarray():
+    for nums in _lists((1, 2, 3, 4), (1, 2)):
+        for target in range(1, 6):
+            yield [target, nums]
+
+
+def _gen_search_insert():
+    for length in (1, 2, 3, 4):
+        for nums in itertools.combinations(range(0, 5), length):
+            for target in range(-1, 6):
+                yield [list(nums), target]
+
+
+def _gen_rotated_min():
+    for length in (1, 2, 3, 4):
+        for nums in itertools.combinations(range(0, 5), length):
+            for k in range(length):
+                yield [list(nums[k:] + nums[:k])]
+
+
+def _gen_parentheses():
+    for n in (1, 2, 3, 4):
+        for chars in itertools.product("()[]", repeat=n):
+            yield ["".join(chars)]
+
+
+def _gen_daily_temperatures():
+    for temps in _lists((1, 2, 3, 4), (30, 31, 32)):
+        yield [temps]
+
+
+def _gen_same_tree():
+    small = list(_valued_trees(2, (1, 2)))
+    for p in small:
+        for q in small:
+            yield [p, q]
+    ones = [t for t in _valued_trees(3, (1,)) if sum(v is not None for v in t) == 3]
+    for p in ones:
+        for q in ones:
+            yield [p, q]
+
+
+def _gen_path_sum():
+    for root in _valued_trees(3, (1, 2)):
+        for target in range(0, 6):
+            yield [root, target]
+
+
+def _gen_flood_fill():
+    for image in _grids(((1, 1), (1, 2), (2, 1), (2, 2)), (0, 1)):
+        for sr in range(len(image)):
+            for sc in range(len(image[0])):
+                for color in (0, 1, 2):
+                    yield [image, sr, sc, color]
+
+
+def _gen_islands():
+    for grid in _grids(((1, 1), (1, 2), (2, 1), (1, 3), (3, 1), (2, 2), (2, 3), (3, 2)), ("0", "1")):
+        yield [grid]
+
+
+def _gen_min_cost_stairs():
+    for cost in _lists((2, 3, 4), range(0, 3)):
+        yield [cost]
+
+
+def _gen_house_robber():
+    for nums in _lists((1, 2, 3, 4), range(0, 4), sample=(4, 2)):
+        yield [nums]
+
+
+def _gen_max_subarray():
+    for nums in _lists((1, 2, 3, 4), range(-2, 3), sample=(4, 5)):
+        yield [nums]
+
+
 _GENERATORS = {
     "two-sum": _gen_two_sum,
     "contains-duplicate": _gen_contains_duplicate,
@@ -392,6 +540,23 @@ _GENERATORS = {
     "find-if-path-exists-in-graph": _gen_valid_path,
     "maximum-depth-of-binary-tree": _gen_max_depth,
     "climbing-stairs": _gen_climbing_stairs,
+    "valid-anagram": _gen_valid_anagram,
+    "product-of-array-except-self": _gen_product_except_self,
+    "squares-of-a-sorted-array": _gen_sorted_squares,
+    "container-with-most-water": _gen_container,
+    "best-time-to-buy-and-sell-stock": _gen_stock,
+    "minimum-size-subarray-sum": _gen_min_subarray,
+    "search-insert-position": _gen_search_insert,
+    "find-minimum-in-rotated-sorted-array": _gen_rotated_min,
+    "valid-parentheses": _gen_parentheses,
+    "daily-temperatures": _gen_daily_temperatures,
+    "same-tree": _gen_same_tree,
+    "path-sum": _gen_path_sum,
+    "flood-fill": _gen_flood_fill,
+    "number-of-islands": _gen_islands,
+    "min-cost-climbing-stairs": _gen_min_cost_stairs,
+    "house-robber": _gen_house_robber,
+    "maximum-subarray": _gen_max_subarray,
 }
 
 
