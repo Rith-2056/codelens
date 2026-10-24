@@ -416,3 +416,23 @@ export function stepChanges(step: TraceStep, prev: TraceStep | undefined): StepC
   return out;
 }
 
+
+// ---- Where a run starts ------------------------------------------------------------
+
+const SETUP_LINE = /^\s*(?:$|#|@|def\b|class\b|async\s+def\b|import\b|from\s+\S+\s+import\b)/;
+
+/**
+ * The step a run opens at, skipping setup nobody needs to watch (the class
+ * and def lines). With `method` (a problem's solution method): the first line
+ * inside it. Otherwise: the first line that is not def, class, import or a
+ * comment. Falls back to the first step. Earlier steps stay reachable.
+ */
+export function firstRealStep(steps: readonly TraceStep[], source: string, method?: string): number {
+  if (method) {
+    const k = steps.findIndex((s) => s.functionName === method && s.event === "line");
+    if (k >= 0) return k;
+  }
+  const lines = sourceLines(source);
+  const k = steps.findIndex((s) => s.event === "line" && !SETUP_LINE.test(lines[s.line - 1] ?? ""));
+  return k >= 0 ? k : 0;
+}

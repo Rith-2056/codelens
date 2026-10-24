@@ -4,9 +4,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { useState } from "react";
 import ControlBar, { SPEEDS } from "./ControlBar";
 
-function Harness({ total = 5 }: { total?: number }) {
-  const [i, setI] = useState(0);
-  return <ControlBar index={i} total={total} line={i + 10} onIndexChange={setI} description={`Description of step ${i + 1}.`} />;
+function Harness({ total = 5, start = 0 }: { total?: number; start?: number }) {
+  const [i, setI] = useState(start);
+  return <ControlBar index={i} total={total} line={i + 10} start={start} onIndexChange={setI} description={`Description of step ${i + 1}.`} />;
 }
 
 const step = () => screen.getByRole("slider", { name: "Step" }).getAttribute("aria-valuetext");
@@ -54,6 +54,16 @@ describe("ControlBar", () => {
     expect(button("Play")).toBeTruthy();
     act(() => vi.advanceTimersByTime(5000));
     expect(step()).toBe("Step 2 of 3, line 11");
+  });
+
+  it("Restart goes back to where the run starts (the first real line), not before it", () => {
+    render(<Harness start={2} />);
+    expect(step()).toBe("Step 3 of 5, line 12");
+    fireEvent.click(button("Next step"));
+    fireEvent.click(button("Restart"));
+    expect(step()).toBe("Step 3 of 5, line 12");
+    fireEvent.click(button("Previous step")); // the setup steps are still there
+    expect(step()).toBe("Step 2 of 5, line 11");
   });
 
   it("Restart goes back to step 1", () => {

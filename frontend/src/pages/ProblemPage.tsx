@@ -77,8 +77,8 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
   const latest = useRef(0);
   const refSwitch = useRef<HTMLButtonElement>(null);
   const focusSwitch = useRef(false);
-  const mineStepper = useStepper(mine?.trace ?? null, mine?.id ?? null);
-  const refStepper = useStepper(reference?.trace ?? null, reference?.id ?? null);
+  const mineStepper = useStepper(mine?.trace ?? null, mine?.id ?? null, mine?.program, problem.method);
+  const refStepper = useStepper(reference?.trace ?? null, reference?.id ?? null, reference?.program, problem.method);
   const viewingRef = showRef && view === "ref";
   /** The Code Visualizer is open (a full-screen view over this page). */
   const [visualizing, setVisualizing] = useState(false);
@@ -461,6 +461,7 @@ export default function ProblemPage({ problem }: { problem: Problem }) {
           codeHash={shown.run.trace.codeHash}
           traceId={shown.run.id}
           index={shown.stepper.i}
+          start={shown.stepper.start}
           onIndexChange={shown.stepper.goTo}
           lang={lang}
           onClose={() => setVisualizing(false)}

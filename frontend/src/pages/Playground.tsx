@@ -10,7 +10,7 @@ import { structuresFor, topStructureChange } from "../components/structures";
 import ChangeList from "../visualizer/ChangeList";
 import CodeVisualizer from "../visualizer/CodeVisualizer";
 import ControlBar from "../visualizer/ControlBar";
-import { stepChanges } from "../visualizer/focus";
+import { firstRealStep, stepChanges } from "../visualizer/focus";
 import { explainStep, type Lang } from "../explain";
 import { lessonById, lessons, type LessonId } from "../lessons";
 import { clearDraft, loadDraft, saveDraft } from "../drafts";
@@ -150,6 +150,11 @@ export default function Playground() {
     step && traced ? explainStep(index > 0 ? steps[index - 1] : undefined, step, lang, traced.code) : undefined;
 
   const stepping = !showEditor && traced !== null && step !== undefined;
+  // Each run opens at its first line of code, past the "about to start" step and any def/class lines.
+  const start = useMemo(() => (traced ? firstRealStep(steps, traced.code) : 0), [traced, steps]);
+  useEffect(() => {
+    if (traceId !== undefined) dispatch({ type: "setStep", index: start });
+  }, [traceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "Open Code Visualizer" with new code: it opens once that code is traced.
   useEffect(() => {
@@ -264,6 +269,7 @@ export default function Playground() {
                 index={index}
                 total={steps.length}
                 line={step.line}
+                start={start}
                 description={template ?? ""}
                 onIndexChange={goToStep}
                 globalKeys={!visualizing}
@@ -310,6 +316,7 @@ export default function Playground() {
           codeHash={traced.trace.codeHash}
           traceId={String(traced.traceId)}
           index={index}
+          start={start}
           onIndexChange={goToStep}
           lang={lang}
           onClose={() => setVisualizing(false)}

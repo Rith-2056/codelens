@@ -4,7 +4,8 @@
 import { describe, expect, it } from "vitest";
 import type { JsonValue, TraceResult, TraceStep } from "../types/trace";
 import { hideSolutionSelf } from "../components/practiceView";
-import { accessedCells, codeContext, detectPattern, evalIndex, variableGroups } from "./focus";
+import { accessedCells, codeContext, detectPattern, evalIndex, firstRealStep, variableGroups } from "./focus";
+import { lessons } from "../lessons";
 
 const raw = import.meta.glob("../../../shared/fixtures/practice/*.json", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 function run(slug: string) {
@@ -115,5 +116,29 @@ describe("variableGroups", () => {
     expect(all).not.toContain("Solution");
     const mod = variableGroups(two.steps, two.steps.length - 1, two.program);
     expect([...mod.other, ...mod.parameters].map((v) => v.name)).not.toContain("Solution");
+  });
+});
+
+describe("firstRealStep: where a run starts", () => {
+  it("on a problem: the first line inside the solution method, not the class or def lines", () => {
+    const { program, steps } = run("two-sum");
+    const k = firstRealStep(steps, program, "twoSum");
+    expect(steps[k]).toMatchObject({ functionName: "twoSum", event: "line", line: 3 }); // `seen = {}`
+    expect(steps.slice(0, k).every((s) => s.functionName !== "twoSum" || s.event === "call")).toBe(true);
+  });
+
+  it("without a method: the first line that is not def, class, import or a comment", () => {
+    const { program, steps } = run("two-sum");
+    expect(program.split("\n")[steps[firstRealStep(steps, program)]!.line - 1]).toMatch(/^nums = /);
+    const loop = lessons.find((l) => l.id === "loop")!;
+    const ls = loop.fixture.steps;
+    expect(ls[firstRealStep(ls, loop.source)]).toMatchObject({ event: "line", line: 1 });
+    expect(firstRealStep(ls, loop.source)).toBe(1);
+  });
+
+  it("falls back to the first step when nothing qualifies", () => {
+    const { program, steps } = run("two-sum");
+    expect(firstRealStep(steps.slice(0, 2), program, "twoSum")).toBe(0);
+    expect(firstRealStep([], program)).toBe(0);
   });
 });

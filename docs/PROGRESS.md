@@ -628,3 +628,13 @@ to its stub only if you never changed it. On Your code, the lesson you started
 from is restored too. Tests: leaving and returning keeps the code on both
 pages; each problem keeps its own; the code survives Run, the visualizer and
 Edit code; junk, oversized or blocked storage is ignored.
+
+**16b: runs open at your first real line, tests first.** A run used to open
+at `class Solution:`, then took several steps through class and def setup
+before reaching your code. Now a problem's run opens at the first line inside
+your method (`seen = {}` / `count = {}`). On Your code, a run opens at the
+first line that is not def, class, import or a comment. Restart (and Play
+from the end) returns there. The setup steps are still one Previous away.
+Tests: the step logic on real traces (with fallbacks), the control bar's
+Restart, the problem page (steps panel and visualizer open on line 3), and
+the Your code lesson opening on line 1.

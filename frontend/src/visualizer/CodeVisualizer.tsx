@@ -26,6 +26,8 @@ type Props = {
   codeHash: string;
   traceId: string;
   index: number;
+  /** Where the run opens (its first real line); Restart goes here. */
+  start?: number;
   onIndexChange: (index: number, fromSlider?: boolean) => void;
   lang: Lang;
   onClose: () => void;
@@ -73,7 +75,7 @@ function contextText(ctx: CodeContext): string {
 // what changed, the variables that matter now, everything else collapsed),
 // and the control bar along the bottom. The page behind it is inert.
 export default function CodeVisualizer(props: Props) {
-  const { title, runLabel, program, steps, codeHash, traceId, index, onIndexChange, lang, onClose, headerExtra } = props;
+  const { title, runLabel, program, steps, codeHash, traceId, index, start = 0, onIndexChange, lang, onClose, headerExtra } = props;
   const i = Math.min(index, Math.max(0, steps.length - 1));
   const step = steps[i];
   const rootRef = useRef<HTMLDivElement>(null);
@@ -369,6 +371,7 @@ export default function CodeVisualizer(props: Props) {
           index={i}
           total={steps.length}
           line={step.line}
+          start={start}
           description={template}
           onIndexChange={(n, fromSlider) => {
             setScrubbing(Boolean(fromSlider));

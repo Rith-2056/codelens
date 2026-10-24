@@ -169,12 +169,20 @@ describe("loop lesson (plan.md acceptance)", () => {
     expect(runTrace).not.toHaveBeenCalled();
   });
 
+  it("opens at the first line of code, not the 'about to start' step", () => {
+    render(<App />);
+    expect(stepInfo()).toMatchObject({ step: 2, line: 1 });
+    expect(explanation()).toMatch(/line 1/i);
+    previous();
+    expect(stepInfo().step).toBe(1); // the start is still reachable
+  });
+
   it("steps with the arrow keys, but not while typing in the editor", () => {
     render(<App />);
     fireEvent.keyDown(document.body, { key: "ArrowRight" });
-    expect(stepInfo().step).toBe(2);
+    expect(stepInfo().step).toBe(3);
     fireEvent.keyDown(document.body, { key: "ArrowLeft" });
-    expect(stepInfo().step).toBe(1);
+    expect(stepInfo().step).toBe(2);
     fireEvent.click(screen.getByRole("button", { name: /edit code/i }));
     const editor = screen.getByRole("textbox");
     editor.focus();
@@ -223,8 +231,9 @@ describe("errors and runaway loops (real tracer output)", () => {
     render(<App />);
     await visualize(inject("programs").forever, forever);
     expect(screen.getAllByRole("status").some((s) => /Stopped after \d+ steps/.test(s.textContent ?? ""))).toBe(true);
+    const at = stepInfo().step;
     next();
-    expect(stepInfo().step).toBe(2);
+    expect(stepInfo().step).toBe(at + 1);
     fireEvent.click(screen.getByRole("button", { name: /edit code/i }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "x = 1\n" } });
     expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("x = 1\n");
@@ -415,6 +424,6 @@ describe("accessibility", () => {
     const before = live();
     next();
     expect(live()).not.toBe(before);
-    expect(live()).toMatch(/Step 2 of 11/);
+    expect(live()).toMatch(/Step 3 of 11/); // the lesson opens at step 2, its first line of code
   });
 });

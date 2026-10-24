@@ -17,6 +17,8 @@ type Props = {
   description: string;
   /** Left/Right arrows anywhere step this bar (off when another bar owns them). */
   globalKeys?: boolean;
+  /** Where the run starts (its first real line); Restart and Play-at-the-end go here. */
+  start?: number;
 };
 
 // Arrow keys must keep working normally while the student is typing.
@@ -47,7 +49,7 @@ const ICONS = {
 // Play moves one step per tick and stops at the last step; stepping by hand
 // pauses it. The end buttons stay focusable (aria-disabled) so focus is
 // never lost at the first or last step.
-export default function ControlBar({ index, total, line, onIndexChange, description, globalKeys = true }: Props) {
+export default function ControlBar({ index, total, line, onIndexChange, description, globalKeys = true, start = 0 }: Props) {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]["value"]>("1");
   const sliderId = useId();
@@ -73,7 +75,7 @@ export default function ControlBar({ index, total, line, onIndexChange, descript
 
   function togglePlay() {
     if (playing) return setPlaying(false);
-    if (index >= last) onIndexChange(0);
+    if (index >= last) onIndexChange(Math.min(start, last));
     setPlaying(true);
   }
 
@@ -97,7 +99,7 @@ export default function ControlBar({ index, total, line, onIndexChange, descript
     <div className="control-bar" role="group" aria-label="Execution controls">
       <div className="cb-row">
         <div className="cb-buttons">
-          <button type="button" className="cb-button" aria-label="Restart" onClick={() => goTo(0)}>
+          <button type="button" className="cb-button" aria-label="Restart" onClick={() => goTo(start)}>
             <Icon d={ICONS.restart} />
           </button>
           <button type="button" className="cb-button" aria-label="Previous step" aria-disabled={index <= 0} aria-keyshortcuts="ArrowLeft" onClick={() => goTo(index - 1)}>

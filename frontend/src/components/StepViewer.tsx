@@ -7,7 +7,7 @@ import { previousInFrame } from "./stepInfo";
 import { structuresFor, topStructureChange } from "./structures";
 import ControlBar from "../visualizer/ControlBar";
 import ChangeList from "../visualizer/ChangeList";
-import { stepChanges } from "../visualizer/focus";
+import { firstRealStep, stepChanges } from "../visualizer/focus";
 
 export type Stepper = {
   steps: TraceStep[];
@@ -16,21 +16,27 @@ export type Stepper = {
   step: TraceStep | undefined;
   /** True while the slider is moving, so the narrator waits for it to settle. */
   scrubbing: boolean;
+  /** Where the run opens: its first real line (see firstRealStep). */
+  start: number;
   goTo: (n: number, fromScrubber?: boolean) => void;
 };
 
-/** Which step of a practice run is shown. Starts at step 1 whenever `traceId` changes.
- *  The page owns it, so the code panel and the step-through panel show the same step. */
-export function useStepper(trace: TraceResult | null, traceId: string | null): Stepper {
+/** Which step of a practice run is shown. Opens at the first line inside the
+ *  solution method whenever `traceId` changes (the class and def lines before
+ *  it stay reachable). The page owns it, so the code panel and the
+ *  step-through panel show the same step. */
+export function useStepper(trace: TraceResult | null, traceId: string | null, program = "", method?: string): Stepper {
   const steps = useMemo(() => (trace ? trace.steps.map(hideSolutionSelf) : []), [trace]);
-  const [state, setState] = useState({ traceId, index: 0, scrubbing: false });
-  const current = state.traceId === traceId ? state : { traceId, index: 0, scrubbing: false };
+  const start = useMemo(() => firstRealStep(steps, program, method), [steps, program, method]);
+  const [state, setState] = useState({ traceId, index: start, scrubbing: false });
+  const current = state.traceId === traceId ? state : { traceId, index: start, scrubbing: false };
   const i = Math.min(current.index, Math.max(0, steps.length - 1));
   return {
     steps,
     i,
     step: steps[i],
     scrubbing: current.scrubbing,
+    start,
     goTo: (n, fromScrubber = false) =>
       setState({ traceId, index: Math.max(0, Math.min(steps.length - 1, n)), scrubbing: fromScrubber }),
   };
@@ -65,7 +71,7 @@ export default function StepViewer({ label, program, trace, lang, stepper, activ
         <p className="empty">{trace.message ?? "This run recorded no steps."}</p>
       ) : (
         <>
-          <ControlBar index={i} total={steps.length} line={step.line} description={template} onIndexChange={goTo} globalKeys={active} />
+          <ControlBar index={i} total={steps.length} line={step.line} start={stepper.start} description={template} onIndexChange={goTo} globalKeys={active} />
           {trace.message && <p className="hint">{trace.message}</p>}
           <h4 className="subheading">What changed</h4>
           <ChangeList changes={stepChanges(step, prevStep)} />

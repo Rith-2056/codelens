@@ -67,6 +67,8 @@ const currentLine = (panel: HTMLElement) =>
   within(panel)
     .getAllByRole("listitem")
     .find((li) => li.getAttribute("aria-current") === "step")!;
+/** Runs open at the first line inside the solution method (`seen = {}`), not at `class Solution:`. */
+const start = fixture.trace.steps.findIndex((s) => s.functionName === "twoSum" && s.event === "line");
 const stepOf = (r: HTMLElement) => within(r).getByRole("slider").getAttribute("aria-valuetext")!.split(",")[0];
 async function run() {
   await act(async () => {
@@ -92,9 +94,9 @@ describe("problem page layout", () => {
     await run();
     const code = screen.getByRole("region", { name: "Your solution" });
     expect(within(code).queryByRole("textbox")).toBeNull();
-    expect(currentLine(code).textContent).toContain(`${fixture.trace.steps[0]!.line}`);
+    expect(currentLine(code).textContent).toContain(`${fixture.trace.steps[start]!.line}`);
     const mine = screen.getByRole("region", { name: "Your solution's run" });
-    const next = fixture.trace.steps.findIndex((s) => s.line !== fixture.trace.steps[0]!.line);
+    const next = fixture.trace.steps.findIndex((s, k) => k > start && s.line !== fixture.trace.steps[start]!.line);
     fireEvent.change(within(mine).getByRole("slider"), { target: { value: String(next) } });
     expect(currentLine(code).textContent).toMatch(new RegExp(`^\\D*${fixture.trace.steps[next]!.line}\\D`));
 
@@ -130,7 +132,7 @@ describe("Code Visualizer from the problem page", () => {
     fireEvent.click(within(dialog()!).getByRole("button", { name: "Exit visualizer" }));
     expect(dialog()).toBeNull();
     expect(document.activeElement).toBe(openButton());
-    expect(stepOf(screen.getByRole("region", { name: "Your solution's run" }))).toBe(`Step 3 of ${fixture.trace.steps.length}`);
+    expect(stepOf(screen.getByRole("region", { name: "Your solution's run" }))).toBe(`Step ${start + 3} of ${fixture.trace.steps.length}`);
   });
 
   it("while it is open, the arrow keys step only once per press", async () => {
@@ -138,7 +140,7 @@ describe("Code Visualizer from the problem page", () => {
     await run();
     fireEvent.click(openButton());
     fireEvent.keyDown(document.body, { key: "ArrowRight" });
-    expect(within(dialog()!).getByRole("slider", { name: "Step" }).getAttribute("aria-valuetext")).toMatch(/^Step 2 of/);
+    expect(within(dialog()!).getByRole("slider", { name: "Step" }).getAttribute("aria-valuetext")).toMatch(new RegExp(`^Step ${start + 2} of`));
   });
 
   it("shows the correct solution's run when that one is selected, with the switch inside", async () => {
@@ -164,6 +166,22 @@ describe("Code Visualizer from the problem page", () => {
     fireEvent.change(within(panel).getByRole("slider", { name: "Step" }), { target: { value: String(seenAdded) } });
     expect(within(panel).getByRole("list", { name: "What changed" }).textContent).toMatch(/seen: new dict/);
     expect(panel.querySelector("table.vars")).toBeNull(); // the details live in the visualizer
+  });
+});
+
+describe("where a run starts", () => {
+  it("after Run, the steps and the visualizer open at the first line inside your method", async () => {
+    render(<ProblemPage problem={twoSum} />);
+    await run();
+    const total = fixture.trace.steps.length;
+    const mine = screen.getByRole("region", { name: "Your solution's run" });
+    expect(within(mine).getByRole("slider", { name: "Step" }).getAttribute("aria-valuetext")).toBe(`Step ${start + 1} of ${total}, line 3`);
+    fireEvent.click(screen.getByRole("button", { name: "Open Code Visualizer" }));
+    const dialog = screen.getByRole("dialog", { name: /Code Visualizer/ });
+    expect(within(dialog).getByRole("slider", { name: "Step" }).getAttribute("aria-valuetext")).toBe(`Step ${start + 1} of ${total}, line 3`);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Next step" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restart" }));
+    expect(within(dialog).getByRole("slider", { name: "Step" }).getAttribute("aria-valuetext")).toBe(`Step ${start + 1} of ${total}, line 3`);
   });
 });
 
@@ -223,7 +241,7 @@ describe("problem page", () => {
     expect(tracePractice).toHaveBeenCalledWith("two-sum", editor().value, [[4, 4], 8]);
     expect(screen.getByRole("status", { name: "Result" }).textContent).toBe("Correct: your solution returned [2, 3] for this input.");
     const mine = screen.getByRole("region", { name: "Your solution's run" });
-    expect(within(mine).getByRole("slider").getAttribute("aria-valuetext")).toMatch(/^Step 1 of \d+/);
+    expect(within(mine).getByRole("slider").getAttribute("aria-valuetext")).toBe(`Step ${start + 1} of ${fixture.trace.steps.length}, line 3`);
   });
 
   it("says what was returned and what was expected when the answer is wrong", async () => {
@@ -257,7 +275,7 @@ describe("problem page", () => {
     // Example 1's reference run comes from the bundled fixture, not the worker.
     expect(tracePractice).not.toHaveBeenCalledWith("two-sum", null, expect.anything());
     expect(within(ref).getByRole("slider").getAttribute("aria-valuetext")).toBe(
-      `Step 1 of ${fixture.trace.steps.length}, line ${fixture.trace.steps[0]!.line}`,
+      `Step ${start + 1} of ${fixture.trace.steps.length}, line ${fixture.trace.steps[start]!.line}`,
     );
   });
 
@@ -280,15 +298,15 @@ describe("problem page", () => {
     const ref = await screen.findByRole("region", { name: "Correct solution's run" });
     const total = fixture.trace.steps.length;
     fireEvent.keyDown(document.body, { key: "ArrowRight" });
-    expect(stepOf(ref)).toBe(`Step 2 of ${total}`);
+    expect(stepOf(ref)).toBe(`Step ${start + 2} of ${total}`);
     fireEvent.click(screen.getByRole("button", { name: "Your solution" }));
     const mine = screen.getByRole("region", { name: "Your solution's run" });
-    expect(stepOf(mine)).toBe(`Step 1 of ${total}`);
+    expect(stepOf(mine)).toBe(`Step ${start + 1} of ${total}`);
     fireEvent.keyDown(document.body, { key: "ArrowRight" });
     fireEvent.keyDown(document.body, { key: "ArrowRight" });
-    expect(stepOf(mine)).toBe(`Step 3 of ${total}`);
+    expect(stepOf(mine)).toBe(`Step ${start + 3} of ${total}`);
     fireEvent.click(screen.getByRole("button", { name: "Correct solution" }));
-    expect(stepOf(screen.getByRole("region", { name: "Correct solution's run" }))).toBe(`Step 2 of ${total}`);
+    expect(stepOf(screen.getByRole("region", { name: "Correct solution's run" }))).toBe(`Step ${start + 2} of ${total}`);
   });
 
   it("hides the Solution object's `self` from the variables", async () => {
