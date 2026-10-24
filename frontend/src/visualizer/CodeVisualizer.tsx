@@ -13,7 +13,8 @@ import { framesOf, structuresFor, topStructureChange } from "../components/struc
 import { formatValue } from "../components/values";
 import ArrayStage, { type PointerRole } from "./ArrayStage";
 import ControlBar from "./ControlBar";
-import { accessedCells, codeContext, detectPattern, stepChanges, variableGroups, type CodeContext, type Pattern, type VarInfo } from "./focus";
+import { findChange } from "../components/jump";
+import { accessedCells, codeContext, detectPattern, sameCellNotes, stepChanges, variableGroups, type CodeContext, type Pattern, type VarInfo } from "./focus";
 import ChangeList from "./ChangeList";
 
 type Props = {
@@ -277,7 +278,7 @@ export default function CodeVisualizer(props: Props) {
             <h4 className="cv-label" id="cv-changes-heading">
               What changed
             </h4>
-            <ChangeList changes={changes} />
+            <ChangeList changes={changes} notes={sameCellNotes(pointers)} />
           </div>
 
           <div className={`cv-stage${showStack && !hasList ? " cv-stage-with-stack" : ""}`}>
@@ -339,6 +340,9 @@ export default function CodeVisualizer(props: Props) {
                   <th scope="col">Name</th>
                   <th scope="col">Value</th>
                   <th scope="col">Change</th>
+                  <th scope="col">
+                    <span className="sr-only">Jump to a change</span>
+                  </th>
                 </tr>
               </thead>
               {allVars
@@ -346,7 +350,7 @@ export default function CodeVisualizer(props: Props) {
                 .map(([label, vs]) => (
                   <tbody key={label}>
                     <tr className="var-group">
-                      <th scope="rowgroup" colSpan={3}>
+                      <th scope="rowgroup" colSpan={4}>
                         {label}
                       </th>
                     </tr>
@@ -357,6 +361,24 @@ export default function CodeVisualizer(props: Props) {
                         </th>
                         <td className="value">{formatValue(v.value, heap)}</td>
                         <td>{v.changed && <span className="marker marker-changed">changed</span>}</td>
+                        <td className="var-jump">
+                          {([-1, 1] as const).map((dir) => {
+                            const to = findChange(steps, i, v.name, dir);
+                            return (
+                              <button
+                                key={dir}
+                                type="button"
+                                className="jump-mini"
+                                aria-label={`${dir < 0 ? "Previous" : "Next"} change of ${v.name}`}
+                                title={`${dir < 0 ? "Previous" : "Next"} change of ${v.name}`}
+                                aria-disabled={to < 0}
+                                onClick={() => to >= 0 && onIndexChange(to)}
+                              >
+                                <span aria-hidden="true">{dir < 0 ? "‹" : "›"}</span>
+                              </button>
+                            );
+                          })}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

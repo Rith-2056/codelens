@@ -442,3 +442,22 @@ export function firstRealStep(steps: readonly TraceStep[], source: string, metho
   const k = steps.findIndex((s) => s.event === "line" && !SETUP_LINE.test(lines[s.line - 1] ?? ""));
   return k >= 0 ? k : 0;
 }
+
+// ---- Pointers that meet ------------------------------------------------------------
+
+/**
+ * A plain fact when two or more pointers are on the same cell, e.g. "i and j
+ * both point at index 0". Often normal (binary search closing in), sometimes
+ * the bug (Two Sum using one item twice); either way worth seeing.
+ */
+export function sameCellNotes(pointers: readonly { name: string; index: number }[]): string[] {
+  const byIndex = new Map<number, string[]>();
+  for (const p of pointers) byIndex.set(p.index, [...(byIndex.get(p.index) ?? []), p.name]);
+  const out: string[] = [];
+  for (const [index, names] of byIndex) {
+    if (names.length < 2) continue;
+    const list = names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+    out.push(`${list} ${names.length === 2 ? "both" : "all"} point at index ${index}`);
+  }
+  return out;
+}

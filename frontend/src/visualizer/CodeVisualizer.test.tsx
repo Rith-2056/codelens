@@ -72,6 +72,29 @@ describe("Code Visualizer", () => {
     expect(within(viz()).getByRole("list", { name: "What changed" }).textContent).toMatch(/left: 0 → 3/);
   });
 
+  it("notes when pointers land on the same cell", () => {
+    const { steps } = load("binary-search");
+    const k = steps.findIndex((s) => s.locals.left === 3 && s.locals.right === 3 && s.locals.mid === 3);
+    render(<Harness slug="binary-search" start={k} />);
+    expect(within(viz()).getByRole("list", { name: "What changed" }).textContent).toMatch(/left, mid and right all point at index 3/);
+  });
+
+  it("All variables: jump to the previous or next change of any variable", () => {
+    const { steps } = load("two-sum-ii-input-array-is-sorted");
+    const start = steps.findIndex((s) => s.functionName === "twoSum" && "right" in s.locals);
+    render(<Harness slug="two-sum-ii-input-array-is-sorted" start={start} />);
+    const stepNow = () => Number(/^Step (\d+)/.exec(screen.getByRole("slider", { name: "Step" }).getAttribute("aria-valuetext")!)![1]) - 1;
+    const left0 = steps[start]!.locals.left;
+    fireEvent.click(screen.getByRole("button", { name: "Next change of left" }));
+    expect(stepNow()).toBeGreaterThan(start);
+    expect(steps[stepNow()]!.locals.left).not.toBe(left0);
+    expect(steps[stepNow() - 1]!.locals.left).toBe(left0);
+    fireEvent.click(screen.getByRole("button", { name: "Previous change of left" }));
+    expect(steps[stepNow()]!.locals.left).toBe(left0);
+    // A button with nowhere to go stays focusable and says so: numbers never changes.
+    expect(screen.getByRole("button", { name: "Next change of numbers" }).getAttribute("aria-disabled")).toBe("true");
+  });
+
   it("sliding window: the window covers k cells and shows its running value", () => {
     const { steps } = load("maximum-average-subarray-i");
     render(<Harness slug="maximum-average-subarray-i" start={afterLine(steps, 7, (s) => s.locals.right === 4)} />);

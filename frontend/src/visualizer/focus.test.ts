@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { JsonValue, TraceResult, TraceStep } from "../types/trace";
 import { hideSolutionSelf } from "../components/practiceView";
-import { accessedCells, codeContext, detectPattern, evalIndex, firstRealStep, stepChanges, variableGroups } from "./focus";
+import { accessedCells, codeContext, detectPattern, evalIndex, firstRealStep, sameCellNotes, stepChanges, variableGroups } from "./focus";
 import { previousInFrame } from "../components/stepInfo";
 import { lessons } from "../lessons";
 
@@ -153,5 +153,15 @@ describe("stepChanges", () => {
       "nums = [3, 8, 5, 1]",
       "target = 6",
     ]);
+  });
+});
+
+describe("sameCellNotes", () => {
+  it("says when pointers share a cell, as a plain fact", () => {
+    expect(sameCellNotes([{ name: "i", index: 0 }, { name: "j", index: 0 }])).toEqual(["i and j both point at index 0"]);
+    expect(sameCellNotes([{ name: "left", index: 3 }, { name: "mid", index: 3 }, { name: "right", index: 3 }])).toEqual([
+      "left, mid and right all point at index 3",
+    ]);
+    expect(sameCellNotes([{ name: "left", index: 0 }, { name: "right", index: 4 }])).toEqual([]);
   });
 });

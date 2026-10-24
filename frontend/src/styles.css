@@ -2785,3 +2785,42 @@ h1[tabindex="-1"]:focus-visible,
     white-space: nowrap;
   }
 }
+
+/* A fact worth seeing on this step (e.g. pointers on the same cell). */
+.cv-chip-note {
+  color: var(--fg);
+  background: var(--window-bg);
+  border-color: var(--window-edge);
+  font-family: var(--sans);
+}
+
+/* All variables: jump to the previous / next change of one variable. */
+.var-jump {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.jump-mini {
+  width: 28px;
+  height: 28px;
+  margin-left: 4px;
+  padding: 0;
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--fg);
+  background: var(--cell-bg);
+  border: 1px solid var(--soft-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.jump-mini:hover:not([aria-disabled="true"]) {
+  border-color: var(--accent);
+}
+
+.jump-mini[aria-disabled="true"] {
+  color: var(--muted);
+  border-style: dashed;
+  cursor: not-allowed;
+}

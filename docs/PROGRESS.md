@@ -161,7 +161,7 @@ Decisions (2026-10-24):
 | 13 | Live Gemini test | done |
 | 14 | Side-by-side workspace, syntax colors, new palette and fonts | done |
 | 15 | Code Visualizer mode (focused debugger view) | done |
-| 16 | Your feedback, then a full UX review | in progress |
+| 16 | Your feedback, then a full UX review | done |
 
 ### Stage 7: Claude → Gemini
 - **Docs checked first:** Google's quickstart, text generation and models pages,
@@ -688,3 +688,14 @@ Checked in the browser:
 - the result in view after Submit
 - the phone header on one row with no sideways scroll
 - the list's progress badges
+
+**16e: your answers to the review's questions, tests first.**
+- **Same cell:** when two or more pointers are on the same cell, What
+  changed adds a neutral note, e.g. "i and j both point at index 0" (the
+  buggy Two Sum) or "left, mid and right all point at index 3" (binary
+  search closing in).
+- **AI explanations:** they stay off by default; no change.
+- **Jump to change is back:** each row in All variables has ‹ › buttons that
+  jump to the previous or next change of that variable. The logic and tests
+  were restored from history; a button with nowhere to go stays focusable and
+  says so.
